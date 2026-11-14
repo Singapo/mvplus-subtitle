@@ -1,0 +1,45 @@
+fix: ship args.js, declare nagisa, and stop the tests from reading a real .env
+
+Three blockers from the v0.1.3 review. All three reproduced first.
+
+**The plugin tarball omitted `args.js`.** `index.js` imports `./args.js` since the
+v0.1.2 argument-builder split, but `package.json` `files` still listed only
+`index.js`, `cordis.patch.yml` and the README. `npm pack --dry-run` confirmed the
+tarball had no `args.js`, so any install from a pack (including a `git:` install
+through the plugin manager) died with `ERR_MODULE_NOT_FOUND`. `files` now
+includes it, and `tests/test_packaging.py` derives every relative import from the
+entry module and asserts the manifest covers it — so the next module split
+cannot silently fall out of the package.
+
+**`nagisa` was missing from the main environment.** The stage list runs
+`caption` and `repair` under the *main* interpreter, and
+`aligned_asr/caption.py` imports `nagisa` directly. The docs had it only in the
+aligner environment, and `pyproject.toml` did not declare it at all, so a clean
+install would have failed at the caption stage. It is now a declared dependency,
+documented as needed in both environments, and `mvsub doctor` probes it twice:
+`runtime_deps` (main interpreter, what caption uses) and `align_env` (the
+aligner's interpreter). Checking only the latter is exactly how this stayed
+green.
+
+**The new tests could read the developer's real `.env`.** Two defects combined:
+`MVSUB_ENV_FILE` set to a missing path silently fell back to `./.env`, and
+`load_env()` writes resolved values into `os.environ` with `setdefault`, so one
+test could hand a real cookie to the next — and to `cmd_scan`, which would then
+call the cloud. A failing assertion would also have printed the cookie.
+
+- `config.load_dotenv()` now treats `MVSUB_ENV_FILE` as authoritative: when it is
+  set, that file is the only candidate, and a missing file yields an empty
+  mapping. Silently reading a different credentials file than the one named is
+  worse than the missing file it papers over.
+- `tests/conftest.py` isolates *every* test: an autouse fixture points
+  `MVSUB_ENV_FILE` at a nonexistent path, removes ambient credentials, and
+  restores `os.environ` afterwards.
+
+Verified end to end: with a canary `.env` in the repository root, the full suite
+reports 346 passed / 6 xfailed and the canary string appears nowhere in the
+output.
+
+Tests: 346 passed / 6 xfailed (7 new: packaging contracts and the `.env`
+authority/isolation rules), `node dsh/test/args.test.mjs` passes, and
+`npm pack --dry-run` now lists `args.js`. No paid request, no cloud account
+touched.

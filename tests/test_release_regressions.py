@@ -25,9 +25,12 @@ import nosub_pipeline  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def _clean_config():
-    """Drop cached config before and after each test; the cache is process-wide."""
-    for name in ("MVSUB_CONFIG", "MVSUB_ENV_FILE", "MVSUB_HOME", "MVSUB_WORK_DIR"):
-        os.environ.pop(name, None)
+    """Drop cached config around each test; the cache is process-wide.
+
+    Credential isolation itself comes from ``tests/conftest.py`` — it points
+    ``MVSUB_ENV_FILE`` at a path that does not exist, so popping that variable
+    here would re-enable the repository ``.env`` fallback and undo it.
+    """
     config.reload()
     yield
     config.reload()
@@ -64,6 +67,38 @@ def test_environment_wins_over_the_dotenv_file(monkeypatch, tmp_path):
     assert env["P115_COOKIES"] == "from-env"
     # a key absent from the environment still comes from the file
     assert env["DEEPSEEK_API_KEY"] == "sk-file"
+
+
+def test_explicit_env_file_is_authoritative(monkeypatch, tmp_path):
+    """Naming a credentials file must not silently fall back to another one.
+
+    A missing ``MVSUB_ENV_FILE`` used to fall through to ``./.env``; on a
+    configured machine that means a test (or a CI job) picks up the real cookie.
+    """
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    (cwd / ".env").write_text("P115_COOKIES=should-not-be-read\n", encoding="utf-8")
+    monkeypatch.chdir(cwd)
+    monkeypatch.setenv("MVSUB_ENV_FILE", str(tmp_path / "absent.env"))
+    config.reload()
+
+    assert config.load_dotenv() == {}
+    assert config.dotenv_value("P115_COOKIES") == ""
+
+
+def test_explicit_env_file_is_read_when_present(monkeypatch, tmp_path):
+    env_file = tmp_path / "creds.env"
+    env_file.write_text("P115_COOKIES=from-named-file\n", encoding="utf-8")
+    monkeypatch.setenv("MVSUB_ENV_FILE", str(env_file))
+    config.reload()
+
+    assert config.dotenv_value("P115_COOKIES") == "from-named-file"
+
+
+def test_tests_never_see_a_real_dotenv():
+    """Guards the autouse isolation in conftest: a real .env must stay invisible."""
+    assert config.dotenv_value("P115_COOKIES") == ""
+    assert config.load_dotenv() == {}
 
 
 def test_missing_cookie_reports_instead_of_raising(monkeypatch, tmp_path):

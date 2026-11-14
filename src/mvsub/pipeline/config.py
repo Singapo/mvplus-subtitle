@@ -142,21 +142,28 @@ def reload() -> None:
 
 @lru_cache(maxsize=1)
 def load_dotenv() -> dict[str, str]:
-    """Parse the first ``.env`` found: ``$MVSUB_ENV_FILE``, repo root, then cwd.
+    """Parse the ``.env`` in effect.
+
+    ``$MVSUB_ENV_FILE`` is authoritative: when it is set, that file is the only
+    candidate, and a missing file yields an empty mapping instead of silently
+    falling back to ``./.env``. Silently reading a *different* credentials file
+    than the one you named is how a test run ends up holding a real cookie —
+    the fallback is more dangerous than the missing file it papers over.
+
+    Without the variable, the repository root wins over the current directory.
 
     A deliberately tiny parser: ``KEY=VALUE`` per line, ``#`` comments, optional
     surrounding quotes. It does not touch ``os.environ``; callers decide what to
-    export. Missing file yields an empty mapping.
+    export.
     """
-    candidates = [
-        Path(os.environ["MVSUB_ENV_FILE"]).expanduser()
-        if os.environ.get("MVSUB_ENV_FILE")
-        else None,
-        repo_root() / ".env",
-        Path.cwd() / ".env",
-    ]
+    explicit = os.environ.get("MVSUB_ENV_FILE")
+    candidates = (
+        [Path(explicit).expanduser()]
+        if explicit
+        else [repo_root() / ".env", Path.cwd() / ".env"]
+    )
     for candidate in candidates:
-        if candidate is None or not candidate.is_file():
+        if not candidate.is_file():
             continue
         values: dict[str, str] = {}
         for line in candidate.read_text(encoding="utf-8", errors="replace").splitlines():

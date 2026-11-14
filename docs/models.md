@@ -55,7 +55,8 @@ HF_ENDPOINT=https://hf-mirror.com hf download ...
 |---|---|---|
 | `ctranslate2 >= 4.7.1` | 日文 760M 模型卡明确要求：词表变了，旧版 ctranslate2 加载不了 | 4.8.0 |
 | `transformers` 不能太旧 | 对齐与复核用到 `AutoModelForMultimodalLM`、`AutoModelForAudioClassification`，旧版没有这些类，会在 `verify_content` / `verify_events` 阶段 ImportError | 5.22.1 |
-| 对齐器用独立解释器 | torch 与 ctranslate2 对 CUDA / cuDNN 的版本要求会互相顶掉 | torch 2.7.1+cu128、nagisa 0.3.1、numpy 2.5.4、scipy 1.18.1 |
+| `nagisa` 在主环境也要装 | `caption`（字幕生成）与 `repair` 跑在**主解释器**上，`caption.py` 直接 `import nagisa`；只在 align-env 里装不够。它已是 `pyproject.toml` 依赖 | 0.3.1 |
+| 对齐器用独立解释器 | torch 与 ctranslate2 对 CUDA / cuDNN 的版本要求会互相顶掉 | torch 2.7.1+cu128、numpy 2.5.4、scipy 1.18.1 |
 
 对齐环境的完整依赖清单见 [README 的「对齐环境」一节](../README.md#对齐环境align-env)。
 
@@ -68,7 +69,8 @@ mvsub doctor
 它会检查：
 
 - `asr_model/model.bin`、`align_model/config.json` 是否存在；
-- 对齐器解释器能否 import `torch` / `transformers` / `nagisa` / `numpy` / `scipy`；
+- 主解释器能否 import `nagisa`（`runtime_deps`，caption 阶段要用）；
+- 对齐器解释器能否 import `torch` / `transformers` / `nagisa` / `numpy` / `scipy`（`align_env`）；
 - 三个可选复核模型是否存在（缺了只报 `warn`，因为最短路径不需要）。
 
 全绿才算能开跑。只想确认路径解析对不对，用 `mvsub config`。

@@ -148,6 +148,7 @@ def cmd_doctor(args: argparse.Namespace, argv: list[str]) -> int:
     check((config.align_model() / "config.json").is_file(), "align_model/config.json",
           config.align_model() / "config.json")
     check(config.align_python().is_file(), "align_python", config.align_python())
+    _check_runtime_imports(check)
     _check_align_environment(check, notes)
 
     for label, path in (("archive_dir", config.archive_dir()),
@@ -168,12 +169,52 @@ def cmd_doctor(args: argparse.Namespace, argv: list[str]) -> int:
 #: Distribution names the aligner and the verification stages import.
 ALIGN_REQUIREMENTS = ("torch", "transformers", "nagisa", "numpy", "scipy")
 
+#: Imported by stages that run under the MAIN interpreter, not the aligner's.
+#: `caption` (aligned_asr/caption.py) tokenises Japanese and is one of them; the
+#: aligner probe below would never catch a missing nagisa here.
+RUNTIME_REQUIREMENTS = ("nagisa",)
+
 #: Models used only by recovery / review paths, not by the shortest Japanese run.
 OPTIONAL_MODELS = (
     ("whisper-large-v3", "非日语源、日语时间轴恢复、源文复核的第二识别器"),
     ("qwen-asr-verifier", "局部声学复核"),
     ("audio-event-verifier", "声音事件校验"),
 )
+
+
+def _check_runtime_imports(check) -> None:
+    """Check imports the MAIN interpreter needs, separately from the aligner's.
+
+    The caption stage runs under ``sys.executable``. Checking only the aligner
+    environment is how a clean install stayed "green" while the caption stage
+    would have failed on ``import nagisa``.
+    """
+    probe = (
+        "import importlib, json\n"
+        f"mods = {list(RUNTIME_REQUIREMENTS)!r}\n"
+        "missing = []\n"
+        "for name in mods:\n"
+        "    try:\n"
+        "        importlib.import_module(name)\n"
+        "    except Exception:\n"
+        "        missing.append(name)\n"
+        "print(json.dumps(missing))\n"
+    )
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", probe], capture_output=True, text=True, timeout=120
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        check(False, "runtime_deps", f"cannot probe {sys.executable}: {error}")
+        return
+    try:
+        missing = json.loads(result.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        check(False, "runtime_deps", "probe produced no parseable result")
+        return
+    check(not missing, "runtime_deps",
+          "nagisa importable by the main interpreter" if not missing
+          else f"missing: {', '.join(missing)} (needed by the caption stage)")
 
 
 def _check_align_environment(check, notes: list[str]) -> None:

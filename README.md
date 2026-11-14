@@ -94,12 +94,17 @@ python -m pip install "torch==2.7.1" "transformers==5.22.1" nagisa==0.3.1 "numpy
 |---|---|---|
 | `torch` | `align.py`、`verify_content.py`、`verify_events.py` | 2.7.1+cu128 |
 | `transformers` | 同上（`AutoModelForTokenClassification` / `AutoModelForMultimodalLM` / `AutoModelForAudioClassification`） | 5.22.1 |
-| `nagisa` | 分词（`align.py`、`caption.py`、`verify_content.py`、`verify_events.py`） | 0.3.1 |
+| `nagisa` | 分词。**两个环境都要装**：`align.py` / `verify_content.py` / `verify_events.py` 在对齐环境，`caption.py` 在主环境 | 0.3.1 |
 | `numpy` | 全部分阶段脚本 | 2.5.4 |
 | `scipy` | WAV 读写与相关运算（含主流水线的 `recognize` / `recover_words`） | 1.18.1 |
 
 `transformers` 的版本不能太低：`AutoModelForMultimodalLM` 与 `AutoModelForAudioClassification`
 在旧版本里不存在，会在 `verify_content` / `verify_events` 阶段直接 ImportError。
+
+**`nagisa` 不是只装对齐环境就够。** 分阶段脚本里 `caption`（字幕生成）与 `repair` 跑在**主解释器**上，
+`caption.py` 直接 `import nagisa`。本项目已把它列进 `pyproject.toml` 的依赖（`uv sync` 会装），
+对齐环境仍需单独装一份。`mvsub doctor` 会分别检查两处：`runtime_deps`（主解释器）与
+`align_env`（对齐环境）。
 
 `mvsub doctor` 会检查这个环境能不能 import 上述依赖，并单独报告可选复核模型是否就位。
 

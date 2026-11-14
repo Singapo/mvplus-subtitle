@@ -8,10 +8,58 @@ current code, or an assertion about the *installed* p115client wire format.
 
 Fixing them means changing pipeline behaviour or constants, which is the
 maintainer's call, not something a port should quietly decide.
+
+Every test also runs with credentials isolated: a developer following the README
+has a real `.env` in the repository root, and a test that reads it would both
+reach the network and print the cookie in a failure diff.
 """
 from __future__ import annotations
 
+import os
+import sys
+from pathlib import Path
+
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src" / "mvsub" / "pipeline"))
+
+import config  # noqa: E402
+
+#: Variables a test must never inherit from the developer's shell.
+CREDENTIAL_VARS = (
+    "P115_COOKIES",
+    "DEEPSEEK_API_KEY",
+    "OPENAI_API_KEY",
+    "MVSUB_CONFIG",
+    "MVSUB_HOME",
+    "MVSUB_ENV_FILE",
+    "MVSUB_MODEL_HOME",
+)
+
+
+@pytest.fixture(autouse=True)
+def isolate_credentials(tmp_path_factory, monkeypatch):
+    """Point the config at an empty environment for the duration of each test.
+
+    ``MVSUB_ENV_FILE`` is set to a path that does not exist, which is now
+    authoritative (see ``config.load_dotenv``): no fallback to the repository's
+    ``.env`` can happen. ``os.environ`` is restored afterwards because
+    ``load_env`` writes resolved values into it with ``setdefault``.
+    """
+    absent = tmp_path_factory.mktemp("no-env") / "absent.env"
+    snapshot = dict(os.environ)
+
+    for name in CREDENTIAL_VARS:
+        monkeypatch.delenv(name, raising=False)
+    # Set last: MVSUB_ENV_FILE is itself in CREDENTIAL_VARS above.
+    monkeypatch.setenv("MVSUB_ENV_FILE", str(absent))
+    config.reload()
+
+    yield
+
+    os.environ.clear()
+    os.environ.update(snapshot)
+    config.reload()
 
 # node id -> reason
 KNOWN_UPSTREAM_GAPS = {

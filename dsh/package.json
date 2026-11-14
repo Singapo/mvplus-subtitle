@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-mvplus-subtitle",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "DeepSeek Harness tools for the mvplus-subtitle pipeline: scan a 115 cloud directory for films without Chinese subtitles, then download, transcribe, align, translate and upload them back",
   "type": "module",
   "main": "index.js",
@@ -10,6 +10,7 @@
   },
   "files": [
     "index.js",
+    "args.js",
     "cordis.patch.yml",
     "README.md"
   ],
