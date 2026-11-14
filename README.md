@@ -42,9 +42,8 @@
 
 ### 模型准备（必须手工做一次）
 
-本项目**不会**自动下载模型，也不带模型权重。默认目录 `~/.mvsub/`。
-
-**五个模型，按你实际要跑的功能准备：**
+本项目**不会**自动下载模型，也不带模型权重。五个模型的确切来源（Hugging Face 仓库 id）、许可、
+下载命令与版本约束写在 **[模型来源](docs/models.md)**，这里只列放置位置和用途：
 
 | 目录 | 用途 | 需要的分支 |
 |---|---|---|
@@ -56,6 +55,14 @@
 
 只跑「日文片 → 字幕」这条最短路径，前两个即可；一旦要用源文复核、声音事件校验、
 非日语源或从视频重做时间轴，后三个都会被加载，缺了会在对应分支明确报 missing。
+
+一条命令下最短路径（换掉 `<model_home>` 即可，完整说明见 [docs/models.md](docs/models.md)）：
+
+```bash
+pip install -U "huggingface_hub[cli]"
+hf download efwkjn/faster-whisper-ja-760M      --local-dir <model_home>/models/japanese-turbo
+hf download Qwen/Qwen3-ForcedAligner-0.6B-hf   --local-dir <model_home>/models/qwen-aligner
+```
 
 ```
 ~/.mvsub/
@@ -220,6 +227,7 @@ dsh plugin add git+https://github.com/Singapo/mvplus-subtitle.git#path:dsh
 
 | 文档 | 内容 |
 |---|---|
+| [docs/models.md](docs/models.md) | 五个模型的确切来源、许可、下载命令、版本约束 |
 | [docs/pipeline.md](docs/pipeline.md) | 四段并行、状态机、断点续跑、验收判据、上传事务 |
 | [docs/configuration.md](docs/configuration.md) | 配置优先级、每个键的含义、`.env` 键 |
 | [docs/pitfalls.md](docs/pitfalls.md) | 踩坑与约束：115 接口、音视频时钟、识别对齐、翻译验收、成本 |
