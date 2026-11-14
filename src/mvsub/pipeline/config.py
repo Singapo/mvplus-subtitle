@@ -249,6 +249,19 @@ def cuda_libs() -> Path:
     return _path("cuda_libs", repo_root() / "lib" / "cuda")
 
 
+def translate_prompt() -> Path:
+    """System prompt file handed to the translator.
+
+    Two variants ship: the default `grounded` prompt, and a
+    `_content_policy` variant that adds the restrained-paraphrase rule for
+    explicit dialogue (kept from the pipeline's earlier API path). Which one a
+    deployment wants is a policy decision, so it is configuration rather than a
+    constant buried in the runner.
+    """
+    default = Path(__file__).resolve().parent / "prompts" / "system_prompt_v9_grounded.txt"
+    return _path("translate_prompt", default)
+
+
 def archive_dir() -> Path:
     """Where verified Japanese source SRTs are archived locally."""
     return _path("archive_dir", home() / "originals")
