@@ -299,6 +299,18 @@ def allow_isolated() -> bool:
     return value in {"1", "true", "yes", "on"}
 
 
+def translate_reference() -> bool:
+    """Send neighbouring source lines as translation context.
+
+    Default is **off**: each request carries only its own cues, which is what the
+    translate-everything-at-once API path did. Turning it on adds a 48-line frame
+    plus margin to every prompt -- measured at roughly double the prompt tokens
+    for a film, about half of which the provider caches.
+    """
+    value = (_lookup("translate_reference") or "0").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
 def archive_dir() -> Path:
     """Where verified Japanese source SRTs are archived locally."""
     return _path("archive_dir", home() / "originals")

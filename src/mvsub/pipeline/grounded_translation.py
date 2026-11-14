@@ -70,9 +70,17 @@ def parse_reply(raw, target):
     return items, [e[0] for e in target if e[0] not in items]
 
 
-def plan_batches(entries, batch_size=16, frame_size=48, margin=8, max_chars=2000, blocked=()):
-    if batch_size < 1 or frame_size < batch_size or margin < 0 or max_chars < 1:
+def plan_batches(entries, batch_size=16, frame_size=48, margin=8, max_chars=2000, blocked=(),
+                 include_reference=True):
+    if batch_size < 1 or margin < 0 or max_chars < 1:
         raise ValueError('Invalid batch/reference limits')
+    if include_reference and frame_size < batch_size:
+        raise ValueError('Invalid batch/reference limits')
+    if not include_reference:
+        # Without a reference block the batch is the unit: no neighbouring lines
+        # are sent, so nothing is paid for context the caller did not ask for.
+        frame_size = batch_size
+        margin = 0
     if len({e[0] for e in entries}) != len(entries):
         raise ValueError('Duplicate input IDs')
     blocked = set(blocked)
@@ -94,12 +102,16 @@ def plan_batches(entries, batch_size=16, frame_size=48, margin=8, max_chars=2000
     return plans
 
 
-def build_prompt(reference, target, system_prompt, names=None, omitted=()):
-    # Fixed reference precedes the changing target, for native prefix caching.
-    prefix = dict(reference=[dict(id=e[0], ja=e[3]) for e in reference],
-                  confirmed_names=names or {}, omitted_source_ids=list(omitted))
+def build_prompt(reference, target, system_prompt, names=None, omitted=(), include_reference=True):
     request = [dict(id=e[0], ja=e[3]) for e in target]
-    return (system_prompt.strip() + '\n\n只供理解的相邻原文与已确认人名：\n'
+    prefix = dict(confirmed_names=names or {}, omitted_source_ids=list(omitted))
+    if include_reference and reference:
+        # Fixed reference precedes the changing target, for native prefix caching.
+        prefix = dict(reference=[dict(id=e[0], ja=e[3]) for e in reference], **prefix)
+        header = '\n\n只供理解的相邻原文与已确认人名：\n'
+    else:
+        header = '\n\n已确认人名：\n'
+    return (system_prompt.strip() + header
             + json.dumps(prefix, ensure_ascii=False, separators=(',', ':'))
             + '\n\n仅翻译以下ID，不输出参考中的其他ID：\n'
             + json.dumps(request, ensure_ascii=False, separators=(',', ':'))
@@ -118,11 +130,12 @@ def semantic_risks(source, translated):
 
 def translate(entries, output, system_prompt, ask, settings, batch_size=16, frame_size=48,
               margin=8, max_workers=1, blocked=(), reference_entries=None, names=None,failure_callback=None,
-              allow_isolated=False):
+              allow_isolated=False, include_reference=True):
     output = Path(output)
     work = output.with_suffix(output.suffix+'.translation')
     cache = work/'requests'; cache.mkdir(parents=True, exist_ok=True)
-    plans = plan_batches(entries, batch_size, frame_size, margin, blocked=blocked)
+    plans = plan_batches(entries, batch_size, frame_size, margin, blocked=blocked,
+                         include_reference=include_reference)
     if reference_entries is not None:
         plans = [([e for e in reference_entries if e[0] not in set(blocked)], target)
                  for _, target in plans]
@@ -137,7 +150,8 @@ def translate(entries, output, system_prompt, ask, settings, batch_size=16, fram
             pending = [e for e in target if e[0] not in accepted]
             if not pending:
                 break
-            prompt = build_prompt(reference, pending, system_prompt, names, blocked)
+            prompt = build_prompt(reference, pending, system_prompt, names, blocked,
+                                  include_reference=include_reference)
             identity = sha(json.dumps(dict(settings=settings, prompt=prompt),
                                       ensure_ascii=False, sort_keys=True).encode('utf-8'))
             record = cache/(identity+'.json')

@@ -53,6 +53,21 @@ def extract(source, output, work=None):
     cues=parse_srt_cues(candidate)
     duration=probe_duration(audio)
     if duration is None:raise ValueError('No audio duration')
+    # A cue whose start equals its end is a timing artefact of forced alignment,
+    # not a missing line: the text is there, only the end boundary collapsed.
+    # Give it the shortest span that cannot overlap the next cue, and record the
+    # repair so the report says which cues were touched. Anything that still
+    # cannot be repaired stays a blocking issue.
+    timing_repairs=[]
+    for i,(idx,a,b,text) in enumerate(cues):
+        if text and b-a<=.001:
+            limit=cues[i+1][1] if i+1<len(cues) else duration
+            end=min(a+.5,max(a+.05,limit-.01),duration)
+            if end>a:
+                cues[i]=(idx,a,end,text)
+                timing_repairs.append(dict(id=idx,start=a,end=round(end,3),reason='zero_duration'))
+    repaired_ids={r['id'] for r in timing_repairs}
+    repaired_starts={round(r['start'],3) for r in timing_repairs}
     previous=-1
     flags=[];quality_issues=[]
     for i,(idx,a,b,text) in enumerate(cues):
@@ -68,19 +83,38 @@ def extract(source, output, work=None):
     alignment=json.loads((job/'alignment.json').read_text(encoding='utf-8'))
     caption=json.loads((job/'event_captioning.json').read_text(encoding='utf-8'))
     if not cues and not alignment.get('omissions'):quality_issues.append(dict(type='unexpected_empty_subtitle'))
-    quality_issues.extend(alignment['issues']);quality_issues.extend(caption['issues'])
-    if repairs['unresolved']:quality_issues.append(dict(type='unresolved_events',count=len(repairs['unresolved'])))
+    # Issues about the cues we just repaired are no longer blocking; they are
+    # reported as repairs instead.
+    def _repaired(issue):
+        return (str(issue.get('id')) in repaired_ids
+                or (isinstance(issue.get('start'),(int,float)) and round(issue['start'],3) in repaired_starts))
+    quality_issues.extend(i for i in alignment['issues'] if not _repaired(i))
+    quality_issues.extend(i for i in caption['issues'] if not _repaired(i))
+    unresolved=[u for u in repairs['unresolved'] if str(u.get('id')) not in repaired_ids]
+    if unresolved:quality_issues.append(dict(type='unresolved_events',count=len(unresolved)))
     if pipeline_revision()!=revision:quality_issues.append(dict(type='pipeline_changed_during_run'))
     if review_digest(job)!=input_review_digest:quality_issues.append(dict(type='manual_review_changed_during_run'))
     if hashlib.sha1(audio.read_bytes()).hexdigest().upper()!=input_audio_sha1:
         quality_issues.append(dict(type='audio_changed_during_run'))
+    # The bytes that will actually be published: repaired cues must reach the file,
+    # and the recorded hash must describe that file, not the pre-repair candidate.
+    if timing_repairs:
+        def _stamp(value):
+            ms=int(round(value*1000));h,ms=divmod(ms,3600000);m,ms=divmod(ms,60000);s,ms=divmod(ms,1000)
+            return f'{h:02}:{m:02}:{s:02},{ms:03}'
+        body='\n\n'.join(f'{idx}\n{_stamp(a)} --> {_stamp(b)}\n{text}' for idx,a,b,text in cues)
+        published=(body+'\n').encode('utf-8')
+    else:
+        published=candidate.read_bytes()
     report=dict(model='efwkjn/faster-whisper-ja-760M',aligner='Qwen3-ForcedAligner-0.6B-hf',
         timing_policy=POLICY,pipeline_revision=revision,quality_passed=not quality_issues,quality_issues=quality_issues,
         content_policy=CONTENT_POLICY,warnings=alignment.get('warnings',[]),omissions=alignment.get('omissions',[]),
         audio_sha1=input_audio_sha1,manual_review_digest=input_review_digest,
-        source_sha1=hashlib.sha1(candidate.read_bytes()).hexdigest().upper(),
+        source_sha1=hashlib.sha1(published).hexdigest().upper(),
+        candidate_sha1=hashlib.sha1(candidate.read_bytes()).hexdigest().upper(),
         seconds=time.perf_counter()-started,cues=len(cues),audio_seconds=duration,
-        unresolved_events=repairs['unresolved'],timing_review=flags,human_audio_verified=False)
+        unresolved_events=unresolved,timing_review=flags,timing_repairs=timing_repairs,
+        human_audio_verified=False)
     output.parent.mkdir(parents=True,exist_ok=True)
     output.with_suffix('.alignment.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
     if quality_issues:
@@ -88,10 +122,11 @@ def extract(source, output, work=None):
     output.parent.mkdir(parents=True,exist_ok=True)
     # Never expose a partial SRT; keep the previous output on any earlier failure.
     with tempfile.NamedTemporaryFile(dir=output.parent,prefix=output.name+'.',suffix='.part',delete=False) as handle:
-        temp=Path(handle.name);handle.write(candidate.read_bytes())
+        temp=Path(handle.name)
+        handle.write(published)
     try:temp.replace(output)
     finally:temp.unlink(missing_ok=True)
-    print(f'[aligned-asr] published {len(cues)} cues; unresolved {len(repairs["unresolved"])}',flush=True)
+    print(f'[aligned-asr] published {len(cues)} cues; repaired {len(timing_repairs)}; unresolved {len(unresolved)}',flush=True)
     return report
 
 

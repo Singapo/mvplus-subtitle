@@ -1182,7 +1182,7 @@ def main():
             batch_size=min(args.batch_size,16),max_workers=args.max_workers,
             blocked=list(dict.fromkeys(review['hold_ids']+review.get('reference_hold_ids',[]))) if review else (),
             reference_entries=reference,names=names,failure_callback=API_BUDGET.halt,
-            allow_isolated=args.allow_isolated)
+            allow_isolated=args.allow_isolated,include_reference=config.translate_reference())
         result['source_review_available']=review is not None
         result['source_file_sha256']=hashlib.sha256(input_path.read_bytes()).hexdigest()
         result['reference_file']=str(Path(args.reference_srt).resolve()) if args.reference_srt else None
