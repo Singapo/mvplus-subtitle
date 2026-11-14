@@ -45,6 +45,16 @@ def parse_reply(raw, target):
         if not isinstance(text, str) or review not in {'none', 'source', 'context'}:
             raise ValueError('Invalid text/review value')
         if review != 'source' and not text.strip():
+            # The system prompt tells the model to keep IDs it must not translate
+            # (non-dialogue cues that slipped past extraction) and mark them
+            # `context`, handing them back for checking. An empty `context` item
+            # is that contract being followed, not a broken response: record it
+            # as held so the batch is not thrown away and the remaining batches
+            # still run. Acceptance still fails on held/reviewed IDs, so nothing
+            # half-translated can be published.
+            if review == 'context':
+                items[idx] = dict(id=idx, zh='', review='context')
+                continue
             raise ValueError('Empty accepted translation')
         if review=='none' and re.search(r'\[(?:原文)?待核\]|【(?:原文)?待核】|译者注[:：]',text):
             raise ValueError('A process marker cannot be published as dialogue')
@@ -177,11 +187,13 @@ def translate(entries, output, system_prompt, ask, settings, batch_size=16, fram
 
     missing = [e[0] for e in entries if e[0] not in results]
     review = [i for i, item in results.items() if item['review'] != 'none']
+    held = [i for i, item in results.items()
+            if item['review'] != 'none' and not (item['zh'] or '').strip()]
     target_blocked=[e[0] for e in entries if e[0] in set(blocked)]
     passed = not missing and not review and not failures and not target_blocked
     report = dict(protocol='grounded-json-v1', source_sha256=sha(json.dumps(entries, ensure_ascii=False).encode('utf-8')),
                   settings=settings, source_hold_ids=target_blocked, omitted_reference_ids=list(blocked), review_ids=review,
-                  items=list(results.values()), missing_ids=missing, failures=failures,
+                  held_ids=held, items=list(results.values()), missing_ids=missing, failures=failures,
                   cache_hits=cache_hits, quality_passed=passed, output_updated=False)
     report['plan']=dict(batch_size=batch_size,reference_frame_size=frame_size,margin=margin,
                         max_target_characters=2000,external_reference=reference_entries is not None)

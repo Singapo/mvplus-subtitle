@@ -1,6 +1,6 @@
 [project]
 name = "mvplus-subtitle"
-version = "0.1.5"
+version = "0.1.6"
 description = "Give a 115 cloud drive film a Chinese subtitle: download, local ASR, LLM translation, and a verified round-trip upload"
 readme = "README.md"
 requires-python = ">=3.12"

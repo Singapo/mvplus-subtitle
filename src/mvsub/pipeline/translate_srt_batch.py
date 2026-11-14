@@ -1190,7 +1190,13 @@ def main():
         atomic_json(output_path.with_suffix(output_path.suffix+'.translation')/'report.json',result)
         write_certificate(result,output_path.with_suffix(output_path.suffix+'.translation'))
         print('[grounded] '+json.dumps(dict(quality_passed=result['quality_passed'],
-            missing_ids=result['missing_ids'],review_ids=result['review_ids'],cache_hits=result['cache_hits'])),flush=True)
+            missing_ids=result['missing_ids'],review_ids=result['review_ids'],
+            held_ids=result.get('held_ids') or [],cache_hits=result['cache_hits'])),flush=True)
+        held=result.get('held_ids') or []
+        if held:
+            print(f'[grounded] {len(held)} 条被标为待核并挂起（多为拟声/无对白段），其余已译完并写入缓存：'
+                  f'{", ".join(held[:12])}{" …" if len(held)>12 else ""}',flush=True)
+            print('[grounded] 成品未写入：待核未清不得发布。补齐这些 ID 后重跑同一命令即可，已译部分不会重复付费。',flush=True)
         print('[budget] '+json.dumps(API_BUDGET.summary()),flush=True)
         return 0 if result['quality_passed'] else (3 if result['source_hold_ids'] or result['review_ids'] else 1)
 
