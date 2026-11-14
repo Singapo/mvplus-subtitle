@@ -77,6 +77,10 @@ TRANSLATE_REASONING = config.translate_reasoning()
 TRANSLATE_EXTRA = ["--grounded", "--batch-size", "16", "--max-workers", "2",
                    "--max-output-tokens", "16384", "--reasoning-effort", TRANSLATE_REASONING,
                    "--timeout", "660", "--off-peak-only"]
+if config.allow_isolated():
+    # Drop lines with no usable translation and publish the rest, instead of
+    # withholding the whole film because a few cues are restricted or unresolved.
+    TRANSLATE_EXTRA.append("--allow-isolated")
 PAID_ARGS = []
 
 # 收尾看门狗的各级超时（秒）：超过才认为该级真卡住并补终止符
@@ -621,15 +625,29 @@ def validate_subtitles(srt: Path, zh: Path, video: Path | None) -> tuple[bool, s
     if kana:
         return False, (f"中文里仍有假名/日文残留 {len(kana)} 行（⑥.2 判据：必须为 0；"
                        f"首处在第 {kana[0]} 行）——模型偶发把日文专名原样留下，需处理后再传")
-    if len(ja_cues) != len(zh_cues):
+    if len(ja_cues) != len(zh_cues) and not config.allow_isolated():
         return False, f"原/译条数不一致（原文 {len(ja_cues)} 条，中文 {len(zh_cues)} 条）"
     tol = TIMELINE_TOL_MS / 1000.0
-    for (ji, js, je, _), (zi, zs, ze, _) in zip(ja_cues, zh_cues):
-        if abs(js - zs) > tol or abs(je - ze) > tol:
-            return False, (f"时间轴与原/译不一致（原文第 {ji} 条 {js:.3f}→{je:.3f}，"
-                           f"中文第 {zi} 条 {zs:.3f}→{ze:.3f}，容差 {TIMELINE_TOL_MS}ms）")
-    note = (f"cue {len(zh_cues)} / 时间轴一致（ja↔zh 逐条，容差 {TIMELINE_TOL_MS}ms）"
-            f" / 无空文本、单调递增")
+    if config.allow_isolated():
+        # Partial publication: every Chinese cue must still line up with a source
+        # cue, but lines that were isolated (no usable translation) are absent,
+        # so the match is a subsequence rather than one-to-one.
+        ja_index = {round(js, 3): (ji, je) for ji, js, je, _ in ja_cues}
+        for zi, zs, ze, _ in zh_cues:
+            hit = ja_index.get(round(zs, 3))
+            if hit is None or abs(hit[1] - ze) > tol:
+                return False, (f"时间轴与原文对不上（中文第 {zi} 条 {zs:.3f}→{ze:.3f} "
+                               f"在原文中找不到同起点条目）")
+        note = (f"cue {len(zh_cues)}/{len(ja_cues)}（允许隔离缺行）"
+                f" / 时间轴逐条对齐（容差 {TIMELINE_TOL_MS}ms）"
+                f" / 无空文本、单调递增")
+    else:
+        for (ji, js, je, _), (zi, zs, ze, _) in zip(ja_cues, zh_cues):
+            if abs(js - zs) > tol or abs(je - ze) > tol:
+                return False, (f"时间轴与原/译不一致（原文第 {ji} 条 {js:.3f}→{je:.3f}，"
+                               f"中文第 {zi} 条 {zs:.3f}→{ze:.3f}，容差 {TIMELINE_TOL_MS}ms）")
+        note = (f"cue {len(zh_cues)} / 时间轴一致（ja↔zh 逐条，容差 {TIMELINE_TOL_MS}ms）"
+                f" / 无空文本、单调递增")
     note += (f" / 起止均在片长内（{duration:.1f}s + 容差 {CUE_TAIL_TOLERANCE}s）"
              if duration is not None else
              " / 时长范围校验：**未做**（未提供视频 → 显式跳过；生产路径不允许跳过）")

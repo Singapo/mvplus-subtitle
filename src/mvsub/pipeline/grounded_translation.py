@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
+import config
 import re
 from pathlib import Path
 import tempfile
@@ -116,7 +117,8 @@ def semantic_risks(source, translated):
 
 
 def translate(entries, output, system_prompt, ask, settings, batch_size=16, frame_size=48,
-              margin=8, max_workers=1, blocked=(), reference_entries=None, names=None,failure_callback=None):
+              margin=8, max_workers=1, blocked=(), reference_entries=None, names=None,failure_callback=None,
+              allow_isolated=False):
     output = Path(output)
     work = output.with_suffix(output.suffix+'.translation')
     cache = work/'requests'; cache.mkdir(parents=True, exist_ok=True)
@@ -177,12 +179,22 @@ def translate(entries, output, system_prompt, ask, settings, batch_size=16, fram
                 if missing:
                     failures.append(dict(ids=missing, error='missing_ids_after_bounded_repair'))
             except Exception as error:
-                failures.append(dict(ids=[e[0] for e in futures[future][1]],
-                                     error=f'{type(error).__name__}: {error}'))
-                if failure_callback and not isinstance(error,SourceContextHold):
-                    failure_callback('Translation response/cache failed validation; inspect before new paid requests')
-                for pending in futures:
-                    pending.cancel()
+                failed_ids = [e[0] for e in futures[future][1]]
+                failures.append(dict(ids=failed_ids, error=f'{type(error).__name__}: {error}'))
+                if isinstance(error, SourceContextHold):
+                    for pending in futures:
+                        pending.cancel()
+                elif isinstance(error, ValueError):
+                    # A malformed or refused reply is a property of this batch, not
+                    # of the budget: record the IDs and let the other batches run.
+                    # Cancelling them here is what turned one bad batch into a
+                    # lost film (and a locked ledger).
+                    pass
+                else:
+                    if failure_callback:
+                        failure_callback('Translation response/cache failed validation; inspect before new paid requests')
+                    for pending in futures:
+                        pending.cancel()
             atomic_json(work/'progress.json', dict(items=list(results.values()), failures=failures))
 
     missing = [e[0] for e in entries if e[0] not in results]
@@ -191,22 +203,30 @@ def translate(entries, output, system_prompt, ask, settings, batch_size=16, fram
             if item['review'] != 'none' and not (item['zh'] or '').strip()]
     target_blocked=[e[0] for e in entries if e[0] in set(blocked)]
     passed = not missing and not review and not failures and not target_blocked
+    # Publishing without some lines is a policy choice (`content_isolated` in the
+    # pipeline this was extracted from): drop the lines that have no usable text
+    # and deliver the rest, instead of withholding the whole film.
+    usable = [e for e in entries if (results.get(e[0]) or {}).get('zh', '').strip()]
+    isolated = [e[0] for e in entries if e[0] not in {u[0] for u in usable}]
+    publish_partial = allow_isolated and bool(usable) and not passed
     report = dict(protocol='grounded-json-v1', source_sha256=sha(json.dumps(entries, ensure_ascii=False).encode('utf-8')),
                   settings=settings, source_hold_ids=target_blocked, omitted_reference_ids=list(blocked), review_ids=review,
                   held_ids=held, items=list(results.values()), missing_ids=missing, failures=failures,
-                  cache_hits=cache_hits, quality_passed=passed, output_updated=False)
+                  cache_hits=cache_hits, quality_passed=passed, output_updated=False,
+                  isolated_ids=isolated, publish_partial=publish_partial)
     report['plan']=dict(batch_size=batch_size,reference_frame_size=frame_size,margin=margin,
                         max_target_characters=2000,external_reference=reference_entries is not None)
-    if passed:
+    if passed or publish_partial:
         from translate_srt_batch import write_srt
+        rows = [(e[0], e[1], e[2], results[e[0]]['zh']) for e in (usable if publish_partial else entries)]
         with tempfile.NamedTemporaryFile(dir=output.parent, suffix='.part', delete=False) as handle:
             temporary = Path(handle.name)
         try:
-            write_srt(temporary, [(e[0], e[1], e[2], results[e[0]]['zh']) for e in entries])
+            write_srt(temporary, rows)
             temporary.replace(output)
         finally:
             temporary.unlink(missing_ok=True)
-        report.update(output_updated=True, output_sha256=sha(output.read_bytes()))
+        report.update(output_updated=True, output_sha256=sha(output.read_bytes()), published_cues=len(rows))
     atomic_json(work/'report.json', report)
     return report
 
@@ -217,7 +237,19 @@ def require_audit(source, output, review_path):
     from translate_srt_batch import parse_srt
     output=Path(output)
     audit=json.loads((output.with_suffix(output.suffix+'.translation')/'certificate.json').read_text(encoding='utf-8'))
-    if (audit.get('protocol')!='grounded-json-v1' or audit.get('quality_passed') is not True
+    partial = audit.get('publish_partial') is True
+    if partial:
+        # Partial publication is the `content_isolated` policy: the film ships
+        # without the lines that have no usable translation. It is only honoured
+        # when the deployment opted in, and it still requires an intact audit
+        # trail and an unchanged source/output pair.
+        if not config.allow_isolated():
+            raise ValueError('Partial subtitle exists but isolated publication is disabled')
+        if (audit.get('protocol')!='grounded-json-v1' or audit.get('output_updated') is not True
+                or audit.get('source_file_sha256')!=sha256(source)
+                or audit.get('output_sha256')!=sha256(output)):
+            raise ValueError('Translation audit is incomplete or source/output changed')
+    elif (audit.get('protocol')!='grounded-json-v1' or audit.get('quality_passed') is not True
             or audit.get('output_updated') is not True or audit.get('missing_ids') or audit.get('review_ids')
             or audit.get('source_hold_ids') or audit.get('failures')
             or audit.get('source_file_sha256')!=sha256(source) or audit.get('output_sha256')!=sha256(output)):
@@ -225,7 +257,8 @@ def require_audit(source, output, review_path):
     if audit.get('source_review_available') is not True or audit.get('source_review_sha256')!=sha256(review_path):
         raise ValueError('Current acoustic source review is required for publication')
     review=load_report(review_path,source)
-    if review['hold_ids']:raise ValueError('Unresolved acoustic source review')
+    if review['hold_ids'] and not partial:
+        raise ValueError('Unresolved acoustic source review')
     if audit.get('reference_file'):
         from source_review import reference_source
         from translate_srt_batch import format_reference_context
@@ -233,13 +266,19 @@ def require_audit(source, output, review_path):
             raise ValueError('Reference context changed')
         format_reference_context(parse_srt(Path(audit['reference_file'])),parse_srt(reference_source(review)))
     a,b=parse_srt(Path(source)),parse_srt(output)
-    if [e[:3] for e in a]!=[e[:3] for e in b]:raise ValueError('Rendered subtitle identity/timing changed')
+    if partial:
+        known={(e[0],e[1],e[2]) for e in a}
+        for row in b:
+            if (row[0],row[1],row[2]) not in known:
+                raise ValueError('Rendered subtitle identity/timing changed')
+    elif [e[:3] for e in a]!=[e[:3] for e in b]:
+        raise ValueError('Rendered subtitle identity/timing changed')
     return audit
 
 
 def write_certificate(report,folder):
     """Immutable acceptance content excludes mutable cache/latency diagnostics."""
-    fields=('protocol','settings','plan','quality_passed','output_updated','source_file_sha256','output_sha256',
+    fields=('protocol','settings','plan','quality_passed','output_updated','publish_partial','isolated_ids','published_cues','source_file_sha256','output_sha256',
             'source_review_available','source_review_sha256','source_hold_ids','review_ids','missing_ids',
             'reference_file','reference_file_sha256','failures','human_audio_verified')
     atomic_json(Path(folder)/'certificate.json',{key:report.get(key) for key in fields})

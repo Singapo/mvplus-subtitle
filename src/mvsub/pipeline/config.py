@@ -288,6 +288,17 @@ def name_map() -> Path:
     return _path("name_map", default)
 
 
+def allow_isolated() -> bool:
+    """Publish with isolated lines dropped instead of withholding the film.
+
+    Default is off: a subtitle missing lines must not be published silently. This
+    restores the older API path's `content_isolated` semantics, where restricted
+    or unresolved lines were dropped from the delivery and the rest went out.
+    """
+    value = (_lookup("allow_isolated") or "0").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
 def archive_dir() -> Path:
     """Where verified Japanese source SRTs are archived locally."""
     return _path("archive_dir", home() / "originals")

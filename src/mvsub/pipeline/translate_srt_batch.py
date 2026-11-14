@@ -1083,6 +1083,8 @@ def main():
     parser.add_argument("--tm-path", default=None, help="Translation Memory 路径（默认项目根目录 translation_memory.json）")
     parser.add_argument("--no-resume", action="store_true", help="不加载 checkpoint 从头开始")
     parser.add_argument("--no-review", action="store_true", help="跳过基于原文的一致性修正")
+    parser.add_argument("--allow-isolated", action="store_true",
+                        help="受限/待核行没有中文时从成品中剔除并照常发布（默认：缺一行就不发布）")
     parser.add_argument("--llm-review", action="store_true", help="额外启用 LLM 一致性审校（较慢，可选）")
     parser.add_argument("--keep-checkpoint", action="store_true", help="完成后保留 checkpoint 文件")
     parser.add_argument("--global-context", action="store_true", help="显式启用基于原文的全局上下文")
@@ -1179,7 +1181,8 @@ def main():
             dict(model=args.model,reasoning_effort=API_REASONING_EFFORT,max_output_tokens=API_MAX_TOKENS),
             batch_size=min(args.batch_size,16),max_workers=args.max_workers,
             blocked=list(dict.fromkeys(review['hold_ids']+review.get('reference_hold_ids',[]))) if review else (),
-            reference_entries=reference,names=names,failure_callback=API_BUDGET.halt)
+            reference_entries=reference,names=names,failure_callback=API_BUDGET.halt,
+            allow_isolated=args.allow_isolated)
         result['source_review_available']=review is not None
         result['source_file_sha256']=hashlib.sha256(input_path.read_bytes()).hexdigest()
         result['reference_file']=str(Path(args.reference_srt).resolve()) if args.reference_srt else None
@@ -1193,12 +1196,20 @@ def main():
             missing_ids=result['missing_ids'],review_ids=result['review_ids'],
             held_ids=result.get('held_ids') or [],cache_hits=result['cache_hits'])),flush=True)
         held=result.get('held_ids') or []
-        if held:
+        if held and not result.get('publish_partial'):
             print(f'[grounded] {len(held)} 条被标为待核并挂起（多为拟声/无对白段），其余已译完并写入缓存：'
                   f'{", ".join(held[:12])}{" …" if len(held)>12 else ""}',flush=True)
             print('[grounded] 成品未写入：待核未清不得发布。补齐这些 ID 后重跑同一命令即可，已译部分不会重复付费。',flush=True)
+        if result.get('publish_partial'):
+            isolated=result.get('isolated_ids') or []
+            print(f'[grounded] 已按 --allow-isolated 发布 {result.get("published_cues")} 条；'
+                  f'剔除 {len(isolated)} 条无可用译文的行：{", ".join(isolated[:12])}'
+                  f'{" …" if len(isolated)>12 else ""}',flush=True)
+            print('[grounded] 这些行没有中文（受限/待核/批次失败），成品因此缺行。补齐后重跑可用同一缓存，不重复付费。',flush=True)
         print('[budget] '+json.dumps(API_BUDGET.summary()),flush=True)
-        return 0 if result['quality_passed'] else (3 if result['source_hold_ids'] or result['review_ids'] else 1)
+        if result.get('output_updated'):
+            return 0
+        return 3 if result['source_hold_ids'] or result['review_ids'] else 1
 
     # 全局上下文预处理（仅显式 --global-context 时启用，会产生额外调用）
     global_ctx = None

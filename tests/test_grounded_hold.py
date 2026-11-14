@@ -48,8 +48,51 @@ def test_source_review_still_requires_a_span():
         grounded.parse_reply(_reply([{"id": "1", "zh": "", "review": "source"}]), TARGET)
 
 
+def _stub_ask(payload_for):
+    """Build an `ask` that answers per batch and durably caches the reply."""
+
+    def ask(prompt: str, record: Path) -> str:
+        payload = payload_for(prompt)
+        record.write_text(json.dumps({
+            "prompt_sha256": grounded.sha(prompt.encode("utf-8")),
+            "content_sha256": grounded.sha(payload.encode("utf-8")),
+            "content": payload,
+            "model": "deepseek-flash",
+            "reasoning_effort": "low",
+            "max_output_tokens": 16384,
+            "response_format": "json",
+            "finish_reason": "stop",
+        }), encoding="utf-8")
+        return payload
+
+    return ask
+
+
+def test_allow_isolated_publishes_the_rest(tmp_path):
+    """The old API path's `content_isolated` semantics: drop the line, ship the film."""
+    output = tmp_path / "movie.srt"
+    ask = _stub_ask(lambda prompt: _reply([
+        {"id": "1", "zh": "", "review": "context"},
+        {"id": "2", "zh": "嗯、", "review": "none"},
+    ]))
+
+    report = grounded.translate(
+        TARGET, output, "system prompt", ask,
+        dict(model="deepseek-flash", reasoning_effort="low", max_output_tokens=16384),
+        batch_size=16, max_workers=1, allow_isolated=True,
+    )
+
+    assert report["publish_partial"] is True
+    assert report["output_updated"] is True
+    assert report["isolated_ids"] == ["1"]
+    assert report["published_cues"] == 1
+    body = output.read_text(encoding="utf-8")
+    assert "嗯、" in body
+    assert "ぴちゅ" not in body
+
+
 def test_held_cues_block_publication_but_keep_the_rest(tmp_path):
-    """The film must not publish, yet everything else must still be paid for and cached."""
+    """Strict mode: the film must not publish, yet the rest must still be paid for."""
     output = tmp_path / "movie.srt"
     asked = []
 
