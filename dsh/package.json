@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-mvplus-subtitle",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "DeepSeek Harness tools for the mvplus-subtitle pipeline: scan a 115 cloud directory for films without Chinese subtitles, then download, transcribe, align, translate and upload them back",
   "type": "module",
   "main": "index.js",
@@ -35,10 +35,6 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  },
-  "peerDependencies": {
-    "@deepseek-ai/cordis": "~4.0.5",
-    "@deepseek-ai/dsh-tools": "0.2.1-rc.2"
   },
   "engines": {
     "dsh": ">=0.2.1-rc.2"

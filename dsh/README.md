@@ -51,24 +51,64 @@ dsh plugin add file:D:/path/to/mvplus-subtitle/dsh
 
 **重启 DSH 后生效**（插件在启动时装配）。
 
-## 环境变量
+> 如果 `dsh plugin add` 报 `'pnpm' is not recognized`，说明这台机器没有 pnpm。
+> 也可以把本目录整个复制到 `~/.dsh/profiles/node_modules/dsh-plugin-mvplus-subtitle/`，
+> 再在 profile 的 `cordis.patch.yml` 里插一行（`dsh_base` 之外的补丁层）：
+>
+> ```yaml
+> - insert:
+>     - id: mvplus-subtitle
+>       name: dsh-plugin-mvplus-subtitle
+> ```
+>
+> 这种方式不需要 pnpm，改名/卸载都只是删目录加删这一行。
+
+## 配置：`~/.config/mvsub/plugin.json`
+
+**不要**依赖 DSH 进程的环境变量：宿主进程的环境在启动时就固定了，改一次路径就要重启一次 DSH；
+而 PATH 上那个 `python` 往往不是装了 `mvsub` 的那个，报错只有一句 `No module named mvsub`。
+
+所以插件读一个每次调用都会重新解析的配置文件，**改它不需要重启**：
+
+```json
+{
+  "python": "D:/path/to/MVplus/.venv/Scripts/python.exe",
+  "cwd": "D:/path/to/mvplus-subtitle",
+  "env": {
+    "PYTHONPATH": "D:/path/to/mvplus-subtitle/src",
+    "MVSUB_MODEL_HOME": "D:/models/subtitle",
+    "MVSUB_ENV_FILE": "D:/path/to/MVplus/.env",
+    "MVSUB_HOME": "D:/media/mvsub"
+  }
+}
+```
+
+| 键 | 必需 | 说明 |
+|---|---|---|
+| `python` | 是 | 装了 `mvsub` 的解释器绝对路径（3.12+） |
+| `cwd` | 是 | 仓库 checkout 目录 |
+| `env` | 可选 | 追加到子进程环境。源码方式运行时需要 `PYTHONPATH=<repo>/src`；模型/凭证/工作区用 `MVSUB_*` 指定 |
+| `env.PYTHONPATH` | 源码方式必需 | 没 `pip install -e .` 时，靠它让 `python -m mvsub` 找到包 |
+| `env.MVSUB_ENV_FILE` | 可选 | 复用已有的 `.env`（里面是 `P115_COOKIES` / `DEEPSEEK_API_KEY`） |
+| `env.MVSUB_HOME` | 可选 | 归档/下载/工作目录的根；不给会落到 `~/.mvsub` |
+
+文件带 BOM 也能读（Windows 编辑器常写 BOM）。优先级：环境变量 > 本文件 > PATH 上的 `python`。
+
+配好后用 `mvsub_config` 与 `mvsub_doctor` 验证：`doctor` 全绿才算打通。
+
+## 环境变量（可选，优先级更高）
 
 | 变量 | 默认 | 用途 |
 |---|---|---|
-| `MVSUB_PYTHON` | `python` / `python.exe` | 装了 `mvsub` 的解释器；虚拟环境请指到绝对路径 |
-| `MVSUB_CWD` | 当前工作目录 | CLI 的工作目录，通常设成仓库 checkout |
-
-`MVSUB_PYTHON` 几乎总要显式设置，因为 DSH 的 PATH 里未必有你的 venv：
-
-```powershell
-$env:MVSUB_PYTHON = "D:/path/to/mvplus-subtitle/.venv/Scripts/python.exe"
-$env:MVSUB_CWD    = "D:/path/to/mvplus-subtitle"
-```
+| `MVSUB_PYTHON` | `plugin.json` → `python`/`python.exe` | 装了 `mvsub` 的解释器 |
+| `MVSUB_CWD` | `plugin.json` → 当前工作目录 | CLI 的工作目录 |
 
 ## 版本兼容
 
-peer 依赖按 `@deepseek-ai/dsh-tools` 的 `0.2.1-rc.2` 写定，`engines.dsh` 声明 `>=0.2.1-rc.2`。
-DSH 升级到不兼容的版本线时，`dsh plugin add` 会要求显式的版本豁免确认，不会静默装坏。
+`engines.dsh` 声明 `>=0.2.1-rc.2`。`@deepseek-ai/dsh-tools` 在 npm 上只有
+`0.0.1-rc.1`，所以本包**不声明** peer 依赖——`@deepseek-ai/dsh-tools` 与
+`@deepseek-ai/cordis` 由 DSH 宿主提供。插件放在 `profiles/node_modules` 下时，
+Node 会向上解析到宿主的那一份，不需要额外安装。
 
 ## 已知限制
 

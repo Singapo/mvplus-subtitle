@@ -14,6 +14,9 @@
  * @module dsh-plugin-mvplus-subtitle
  */
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 
 const name = "mvplus-subtitle";
@@ -21,16 +24,39 @@ const inject = ["tools"];
 
 const OUTPUT_TAIL = 12000;
 
+/**
+ * Per-user plugin settings, read on every call so changing them needs no restart.
+ *
+ * The host process environment is fixed at boot, so an env-var-only contract
+ * would force a DSH restart whenever the interpreter path changes — and a bare
+ * `python` on PATH fails with an opaque "No module named mvsub".
+ */
+function pluginConfigPath() {
+	return join(homedir(), ".config", "mvsub", "plugin.json");
+}
+
+function pluginConfig() {
+	try {
+		// Windows editors (Notepad, PowerShell 5.1) happily write a UTF-8 BOM,
+		// which JSON.parse rejects; strip it instead of failing the whole config.
+		const text = readFileSync(pluginConfigPath(), "utf8").replace(/^\uFEFF/, "");
+		const parsed = JSON.parse(text);
+		return parsed && typeof parsed === "object" ? parsed : {};
+	} catch {
+		return {};
+	}
+}
+
 /** Interpreter that has the `mvsub` package installed. */
 function pythonPath() {
-	const configured = process.env.MVSUB_PYTHON;
+	const configured = process.env.MVSUB_PYTHON || pluginConfig().python;
 	if (configured) return configured;
 	return process.platform === "win32" ? "python.exe" : "python";
 }
 
 /** Working directory for the CLI (the repo checkout, usually). */
 function workingDirectory() {
-	return process.env.MVSUB_CWD || process.cwd();
+	return process.env.MVSUB_CWD || pluginConfig().cwd || process.cwd();
 }
 
 function tail(text, limit = OUTPUT_TAIL) {
@@ -47,11 +73,19 @@ function tail(text, limit = OUTPUT_TAIL) {
 function runCli(args, { timeoutMs = 120000, cwd = workingDirectory() } = {}) {
 	return new Promise((resolve) => {
 		let child;
+		const settings = pluginConfig();
+		const extraEnv =
+			settings.env && typeof settings.env === "object" ? settings.env : {};
 		try {
 			child = spawn(pythonPath(), ["-m", "mvsub", ...args], {
 				cwd,
 				stdio: ["ignore", "pipe", "pipe"],
-				env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
+				env: {
+					...process.env,
+					...extraEnv,
+					PYTHONIOENCODING: "utf-8",
+					PYTHONUTF8: "1",
+				},
 				windowsHide: true,
 			});
 		} catch (error) {
@@ -117,7 +151,14 @@ function renderResult(_args, value) {
  */
 async function invoke(args, options) {
 	const { code, stdout, stderr } = await runCli(args, options);
-	const output = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n");
+	let output = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n");
+	// The single most likely first failure: the configured interpreter has no mvsub.
+	if (code !== 0 && /No module named ['"]?mvsub/.test(output)) {
+		output +=
+			`\n\n此解释器里没有 mvsub。把 ${pluginConfigPath()} 写成 ` +
+			`{"python": "<装了 mvsub 的 python 绝对路径>", "cwd": "<仓库目录>"} 后重试；` +
+			"该文件每次调用都会重新读取，不需要重启 DSH。";
+	}
 	return { ok: code === 0, exitCode: code, output };
 }
 
