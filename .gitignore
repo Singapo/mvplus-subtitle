@@ -5,8 +5,12 @@
 *.cookie
 *_cookies.txt
 
-# Local configuration written by the user
-mvsub.toml
+# Local configuration written by the user.
+# The rule is deliberately anchored to the repository root: an unanchored
+# `mvsub.toml` also matched `examples/mvsub.toml` and silently kept the shipped
+# example out of the release.
+/mvsub.toml
+!/examples/mvsub.toml
 
 # Pipeline state and caches
 work/

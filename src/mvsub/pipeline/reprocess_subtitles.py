@@ -365,7 +365,9 @@ def run(plan_path,extract_only=False,only_fids=None,publish_only=False,budget_fi
             return state
     if not extract_only and not publish_only:
         paid_args=paid_cli_args(budget_file,budget_cny)
-    cookie=env['P115_COOKIES']
+    cookie=env.get('P115_COOKIES') or ''
+    if not cookie:
+        raise RuntimeError('Missing P115_COOKIES (environment or .env)')
     state['pid']=os.getpid();state['active']=True
     state['execution_mode']='publish_only' if publish_only else ('extract_only' if extract_only else 'full')
     state['workers']={'download':DL_WORKERS,'asr':ASR_WORKERS,'translate':TRANSLATE_WORKERS,'upload':UPLOAD_WORKERS}

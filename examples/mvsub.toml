@@ -1,0 +1,32 @@
+# 示例配置：复制成仓库根目录的 mvsub.toml，或放到 $MVSUB_CONFIG 指向的位置。
+# 全部键都可省略；省略时用默认值（默认根目录 ~/.mvsub）。
+#
+# 优先级：环境变量 MVSUB_<KEY>  >  本文件  >  默认值。
+# 密钥不要写在这里，放 .env 或环境变量。
+
+# 所有默认路径的根。下面没写的键都会落在这个目录下。
+home = "D:/media/mvsub"
+
+[paths]
+# 模型树根：它下面要有 models/（japanese-turbo、qwen-aligner 等）和 align-env/
+# 已有部署直接指过去即可，不需要挪文件。
+model_home = "D:/models/subtitle"
+
+# 也可以分别指定（默认由 model_home 推导）
+# asr_model          = "D:/models/subtitle/models/japanese-turbo"
+# multilingual_model = "D:/models/subtitle/models/whisper-large-v3"
+# align_model        = "D:/models/subtitle/models/qwen-aligner"
+
+# 日文原文归档目录（只留本地，不上传云端）
+archive_dir = "D:/media/mvsub/originals"
+
+# 从云盘下载的默认落地目录
+download_dir = "D:/media/mvsub/downloads"
+
+# 流水线状态、缓存、断点文件
+work_dir = "D:/media/mvsub/work"
+
+[asr]
+# 跑强制对齐器的解释器（需要能 import torch）。
+# 默认是 model_home 的同级目录 align-env。
+align_python = "D:/media/mvsub/align-env/Scripts/python.exe"

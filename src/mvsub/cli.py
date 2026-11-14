@@ -7,12 +7,16 @@ maps a short command name onto the right entry point.
 from __future__ import annotations
 
 import argparse
+import json
 import runpy
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 from mvsub import __version__
+
+import config  # noqa: E402  (mvsub/__init__ puts src/mvsub/pipeline on sys.path)
 
 # Subcommands that map onto ``nosub_pipeline.py``'s own parser.
 NOSUB_COMMANDS = ("scan", "run", "status", "verify")
@@ -144,6 +148,7 @@ def cmd_doctor(args: argparse.Namespace, argv: list[str]) -> int:
     check((config.align_model() / "config.json").is_file(), "align_model/config.json",
           config.align_model() / "config.json")
     check(config.align_python().is_file(), "align_python", config.align_python())
+    _check_align_environment(check, notes)
 
     for label, path in (("archive_dir", config.archive_dir()),
                         ("download_dir", config.download_dir()),
@@ -158,6 +163,76 @@ def cmd_doctor(args: argparse.Namespace, argv: list[str]) -> int:
             print(f"  - {note}")
     print("\nall checks passed" if not problems else f"\n{len(problems)} check(s) failed: {', '.join(problems)}")
     return 0 if not problems else 1
+
+
+#: Distribution names the aligner and the verification stages import.
+ALIGN_REQUIREMENTS = ("torch", "transformers", "nagisa", "numpy", "scipy")
+
+#: Models used only by recovery / review paths, not by the shortest Japanese run.
+OPTIONAL_MODELS = (
+    ("whisper-large-v3", "非日语源、日语时间轴恢复、源文复核的第二识别器"),
+    ("qwen-asr-verifier", "局部声学复核"),
+    ("audio-event-verifier", "声音事件校验"),
+)
+
+
+def _check_align_environment(check, notes: list[str]) -> None:
+    """Prove the aligner interpreter can import what the stages import.
+
+    Checking only that the file exists is what let a v0.1.0 deployment look
+    healthy while every extraction would have died on an ImportError: the
+    aligner runs in its own environment, so the main interpreter's packages say
+    nothing about it.
+    """
+    interpreter = config.align_python()
+    if not interpreter.is_file():
+        return
+    probe = (
+        "import importlib, json, sys\n"
+        f"mods = {list(ALIGN_REQUIREMENTS)!r}\n"
+        "missing = []\n"
+        "versions = {}\n"
+        "for name in mods:\n"
+        "    try:\n"
+        "        module = importlib.import_module(name)\n"
+        "        versions[name] = getattr(module, '__version__', '?')\n"
+        "    except Exception:\n"
+        "        missing.append(name)\n"
+        "print(json.dumps({'missing': missing, 'versions': versions}))\n"
+    )
+    try:
+        result = subprocess.run(
+            [str(interpreter), "-c", probe],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        check(False, "align_env", f"cannot run {interpreter}: {error}")
+        return
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip().splitlines()
+        check(False, "align_env", detail[-1] if detail else f"probe failed ({result.returncode})")
+        return
+    try:
+        payload = json.loads(result.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        check(False, "align_env", "probe produced no parseable result")
+        return
+    missing = payload.get("missing") or []
+    check(not missing, "align_env", "torch/transformers/nagisa/numpy/scipy importable"
+          if not missing else f"missing: {', '.join(missing)}")
+    if not missing:
+        versions = payload.get("versions") or {}
+        notes.append("align_env versions: " + ", ".join(f"{k} {v}" for k, v in versions.items()))
+
+    for model_dir, purpose in OPTIONAL_MODELS:
+        path = config.model_home() / "models" / model_dir
+        present = path.is_dir() and any(path.iterdir())
+        print(f"{'ok  ' if present else 'warn'}  optional {model_dir}: "
+              f"{'present' if present else f'absent — {purpose}将会失败'}")
+        if not present:
+            notes.append(f"{model_dir} 缺失：只影响「{purpose}」，最短日语路径仍可跑")
 
 
 def _writable(path: Path) -> bool:

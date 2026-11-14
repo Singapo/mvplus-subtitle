@@ -18,6 +18,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { defineTool } from "@deepseek-ai/dsh-tools";
+import { buildRunArgs, buildTranslateArgs, OFFICIAL_MODEL } from "./args.js";
 
 const name = "mvplus-subtitle";
 const inject = ["tools"];
@@ -259,11 +260,9 @@ function apply(ctx) {
 		},
 		output: { schema: resultSchema, render: resultRender },
 		async execute(args) {
-			const cli = ["run", "--remote-cid", args.remoteCid];
-			for (const keyword of args.only ?? []) cli.push("--only", keyword);
-			if (args.limit) cli.push("--limit", String(args.limit));
-			cli.push("--budget-file", args.budgetFile, "--budget-cny", String(args.budgetCny));
-			return invoke(cli, { timeoutMs: Math.max(30, args.timeoutSeconds ?? 600) * 1000 });
+			return invoke(buildRunArgs(args), {
+				timeoutMs: Math.max(30, args.timeoutSeconds ?? 600) * 1000,
+			});
 		},
 		presentCall: (args) => ({ card: "generic", title: `跑补字幕 ${args.remoteCid}`, kind: "other" }),
 	}));
@@ -304,25 +303,18 @@ function apply(ctx) {
 				description: "本轮预算上限（人民币）。",
 			},
 			output: { type: "string", description: "输出路径，默认与原文同目录同名（不带语言后缀）。" },
-			model: { type: "string", description: "模型名，默认 deepseek-flash。" },
+			model: {
+				type: "string",
+				description: `模型名，默认 ${OFFICIAL_MODEL}（预算模式只接受官方地址与该模型）。`,
+			},
 			offPeakOnly: { type: "boolean", description: "只在优惠时段请求，默认 true。" },
 			timeoutSeconds: { type: "integer", description: "等待上限（秒），默认 900。" },
 		},
 		output: { schema: resultSchema, render: renderResult },
 		async execute(args) {
-			const cli = [
-				"translate", args.srt,
-				"--grounded",
-				"--batch-size", "16",
-				"--max-workers", "2",
-				"--budget-file", args.budgetFile,
-				"--budget-cny", String(args.budgetCny),
-			];
-			if (args.output) cli.push("--output", args.output);
-			if (args.model) cli.push("--model", args.model);
-			// `--off-peak-only` is a store_true flag, so "default on" means passing it unless disabled.
-			if (args.offPeakOnly !== false) cli.push("--off-peak-only");
-			return invoke(cli, { timeoutMs: Math.max(30, args.timeoutSeconds ?? 900) * 1000 });
+			return invoke(buildTranslateArgs(args), {
+				timeoutMs: Math.max(30, args.timeoutSeconds ?? 900) * 1000,
+			});
 		},
 		presentCall: (args) => ({ card: "generic", title: `翻译 ${args.srt}`, kind: "other" }),
 	}));

@@ -21,6 +21,16 @@
 `mvsub_run` 会下载几十 GB、产生翻译费用、并往云端写文件。它的工具描述里明确要求模型
 先和用户确认范围、并建议 `limit: 1` 试跑一部再放量。
 
+### `mvsub_translate` 为什么钉死地址和模型
+
+`translate_srt_batch` 的默认值是本地 Ollama（`http://localhost:11434`、`qwen2.5:14b`），
+而预算模式只接受 `https://api.deepseek.com` + `deepseek-flash`，否则在**读取字幕之前**就 rc=2。
+0.1.0 的插件漏传了 `--url`，于是每次调用都死在参数校验上。
+
+现在 `buildTranslateArgs()`（`args.js`）显式传入两者，`--url` 不开放给调用者——预算模式下它没有
+第二种合法取值，开放只会制造一个必然失败的旋钮。想用本地 Ollama 请直接跑 CLI（不带预算参数）。
+这个建参函数有独立单测：`node dsh/test/args.test.mjs`。
+
 ## 安装
 
 需要先按仓库 [README](../README.md) 把 Python 侧跑通（`mvsub doctor` 全绿），再装插件。

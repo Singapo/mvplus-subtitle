@@ -33,8 +33,7 @@ from functools import lru_cache
 from pathlib import Path
 
 __all__ = [
-    "HOME",
-    "REPO_ROOT",
+    "home",
     "load_dotenv",
     "dotenv_value",
     "model_home",
@@ -49,11 +48,19 @@ __all__ = [
     "work_dir",
     "repo_root",
     "config_file",
+    "reload",
 ]
 # ---------------------------------------------------------------- roots
 
-#: Base directory for every default path.
-HOME = Path(os.environ.get("MVSUB_HOME") or (Path.home() / ".mvsub"))
+
+def home() -> Path:
+    """Base directory for every default path.
+
+    Resolution order matters here: a ``home`` in the config file must win over
+    the built-in default, otherwise setting it changes nothing and every
+    unconfigured subdirectory silently stays under the user's profile.
+    """
+    return _path("home", Path.home() / ".mvsub")
 
 
 def repo_root() -> Path:
@@ -120,6 +127,16 @@ def _path(key: str, default: Path, section: str = "paths") -> Path:
     return Path(raw).expanduser()
 
 
+def reload() -> None:
+    """Drop cached config values.
+
+    Needed by tests, and by long-lived hosts (the DSH plugin) whose environment
+    or config file may change after import.
+    """
+    _file_config.cache_clear()
+    load_dotenv.cache_clear()
+
+
 # ---------------------------------------------------------------- .env
 
 
@@ -171,7 +188,7 @@ def model_home() -> Path:
     Keeping the upstream layout means an existing deployment can point
     ``MVSUB_MODEL_HOME`` at the directory it already uses, with no move.
     """
-    return _path("model_home", HOME)
+    return _path("model_home", home())
 
 
 def asr_model() -> Path:
@@ -214,14 +231,14 @@ def model_libs() -> Path:
 
 def archive_dir() -> Path:
     """Where verified Japanese source SRTs are archived locally."""
-    return _path("archive_dir", HOME / "originals")
+    return _path("archive_dir", home() / "originals")
 
 
 def download_dir() -> Path:
     """Default landing directory for downloads from the cloud drive."""
-    return _path("download_dir", HOME / "downloads")
+    return _path("download_dir", home() / "downloads")
 
 
 def work_dir() -> Path:
     """Scratch directory for pipeline state, caches and partial files."""
-    return _path("work_dir", HOME / "work")
+    return _path("work_dir", home() / "work")

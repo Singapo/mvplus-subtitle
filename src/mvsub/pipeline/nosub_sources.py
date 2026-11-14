@@ -182,7 +182,9 @@ def prepare_sources(work,limit=3):
             if cached:return row,cached.parent,cached,None
             if not audio.exists() and not restore_audio(audio,Path(row['video']['n']).stem,fid):
                 if free_gb(work)<5:raise RuntimeError('Less than 5 GiB free; source preparation stopped')
-                Cloud115(load_env()['P115_COOKIES']).extract_audio(row['video']['pc'],audio)
+                cookie=load_env().get('P115_COOKIES') or ''
+                if not cookie:raise RuntimeError('Missing P115_COOKIES (environment or .env)')
+                Cloud115(cookie).extract_audio(row['video']['pc'],audio)
             archive_audio(audio,Path(row['video']['n']).stem,fid)
             prune_duplicate_audio_chunks(audio)
             return row,job,source,audio

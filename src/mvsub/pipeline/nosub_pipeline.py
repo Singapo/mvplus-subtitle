@@ -143,12 +143,33 @@ SUB_EXT = [".srt", ".ass", ".vtt", ".ssa"]
 
 
 def load_env() -> dict[str, str]:
-    """读 .env：解出 P115_COOKIES，并把 DEEPSEEK_API_KEY 注入环境（子进程要继承）。"""
+    """Resolve credentials and export them for child processes.
+
+    Priority is environment variable first, then the `.env` file, matching
+    `config.dotenv_value()` and what the docs promise. Returning only the file
+    contents (the earlier behaviour) meant an env-only deployment died with a
+    bare `KeyError` on the very first scan.
+    """
     env: dict[str, str] = dict(config.load_dotenv())
     for key in ("DEEPSEEK_API_KEY", "OPENAI_API_KEY", "P115_COOKIES"):
-        if env.get(key):
-            os.environ.setdefault(key, env[key])
+        value = (os.environ.get(key) or env.get(key) or "").strip()
+        if value:
+            env[key] = value
+            os.environ.setdefault(key, value)
     return env
+
+
+def cloud_cookie(env: dict[str, str] | None = None) -> str:
+    """The 115 cookie, or a message-free empty string the caller must handle."""
+    resolved = env if env is not None else load_env()
+    return (resolved.get("P115_COOKIES") or config.dotenv_value("P115_COOKIES") or "").strip()
+
+
+def missing_cookie_message() -> str:
+    return (
+        "缺少 P115_COOKIES：设成环境变量，或写进 "
+        f"{config.repo_root() / '.env'}（或 $MVSUB_ENV_FILE 指向的文件）"
+    )
 
 
 def safe_name(name: str) -> str:
@@ -170,7 +191,24 @@ def human(n: float) -> str:
 
 
 def free_gb(path: Path) -> float:
-    return shutil.disk_usage(str(path)).free / 1024 ** 3
+    """Free space for the volume holding ``path``.
+
+    ``path`` often does not exist yet on a fresh deployment (the work directory is
+    created on the first run). ``disk_usage`` on a missing path raises
+    ``FileNotFoundError``, so walk up to the nearest existing ancestor: that is
+    the same volume, and it keeps read-only commands like ``scan`` read-only
+    instead of creating directories just to measure them.
+    """
+    probe = Path(path)
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    try:
+        return shutil.disk_usage(str(probe)).free / 1024 ** 3
+    except OSError:
+        # Unreachable volume (e.g. a configured drive that is not mounted):
+        # report zero rather than traceback, so the caller's threshold produces
+        # a message a user can act on.
+        return 0.0
 
 
 # ------------------------------------------------- 115 客户端（补丁与接口知识都在 cloud_common.py）
@@ -1152,8 +1190,11 @@ def resolve_cid(cloud: Cloud, args) -> str | None:
 
 
 def cmd_scan(args) -> int:
-    env = load_env()
-    cloud = Cloud(env["P115_COOKIES"])
+    cookie = cloud_cookie()
+    if not cookie:
+        print(missing_cookie_message(), file=sys.stderr)
+        return 2
+    cloud = Cloud(cookie)
     cid = resolve_cid(cloud, args)
     if cid is None:
         print("请给 --remote-cid 或 --remote-path", file=sys.stderr)
@@ -1199,7 +1240,11 @@ def cmd_run(args) -> int:
         print(f"提示词不存在: {PROMPT}", file=sys.stderr)
         return 2
 
-    cloud = Cloud(env["P115_COOKIES"])
+    cookie = cloud_cookie(env)
+    if not cookie:
+        print(missing_cookie_message(), file=sys.stderr)
+        return 2
+    cloud = Cloud(cookie)
     cid = resolve_cid(cloud, args)
     if cid is None:
         print("请给 --remote-cid 或 --remote-path", file=sys.stderr)
@@ -1328,8 +1373,11 @@ def format_batch_summary(counts: dict[str, int], extra: dict[str, int],
 
 
 def cmd_status(args) -> int:
-    env = load_env()
-    cloud = Cloud(env["P115_COOKIES"])
+    cookie = cloud_cookie()
+    if not cookie:
+        print(missing_cookie_message(), file=sys.stderr)
+        return 2
+    cloud = Cloud(cookie)
     cid = resolve_cid(cloud, args)
     if cid is None:
         print("请给 --remote-cid 或 --remote-path", file=sys.stderr)

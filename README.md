@@ -35,25 +35,66 @@
 | Python | 3.12+ | `p115client` 要求 `>=3.12,<4` |
 | FFmpeg | `ffmpeg` / `ffprobe` 在 PATH | 取音、探测时长 |
 | GPU | NVIDIA，显存足够跑 760M ASR + 0.6B 对齐 | CPU 能跑但极慢 |
-| 模型 | 日文 ASR + Qwen 强制对齐器 | **不自动下载**，见下文 |
+| 模型 | 日文 ASR + Qwen 强制对齐器（见下表） | **不自动下载** |
+| 对齐环境 | 独立解释器 + torch/transformers/nagisa | 见下「对齐环境」 |
 | 账号 | 115 cookie（读目录/下载/上传） | 只需要你自己的账号 |
 | 翻译 | DeepSeek API key，或人工/Agent 通道 | 付费翻译默认走 DeepSeek |
 
 ### 模型准备（必须手工做一次）
 
-本项目**不会**自动下载模型，也不带模型权重。默认目录 `~/.mvsub/`：
+本项目**不会**自动下载模型，也不带模型权重。默认目录 `~/.mvsub/`。
+
+**五个模型，按你实际要跑的功能准备：**
+
+| 目录 | 用途 | 需要的分支 |
+|---|---|---|
+| `models/japanese-turbo/` | 日文识别（760M） | **必需**：所有日语片的提取 |
+| `models/qwen-aligner/` | Qwen 强制对齐器 | **必需**：日语独立对齐 |
+| `models/whisper-large-v3/` | 多语种识别 + 日语时间轴恢复 + 源文复核的第二识别器 | 强烈建议：非日语源、重做时间轴、声学复核都要 |
+| `models/qwen-asr-verifier/` | 局部声学复核（判断识别内容是否真的说得出来） | 可选：`source_review` / 重译线要用 |
+| `models/audio-event-verifier/` | 声音事件校验（区分对白与非语言发声） | 可选：`verify_events` 阶段要用 |
+
+只跑「日文片 → 字幕」这条最短路径，前两个即可；一旦要用源文复核、声音事件校验、
+非日语源或从视频重做时间轴，后三个都会被加载，缺了会在对应分支明确报 missing。
 
 ```
 ~/.mvsub/
 ├── models/
-│   ├── japanese-turbo/     # faster-whisper 日文模型，需含 model.bin
-│   ├── whisper-large-v3/   # 非日语源用的多语种模型（用到才需要）
-│   └── qwen-aligner/       # Qwen 强制对齐器，需含 config.json
-└── align-env/Scripts/python.exe   # 能 import torch 的独立环境（对齐器用）
+│   ├── japanese-turbo/          # 需含 model.bin
+│   ├── qwen-aligner/            # 需含 config.json
+│   ├── whisper-large-v3/        # 非日语源 / 日语时间轴恢复 / 源文复核
+│   ├── qwen-asr-verifier/       # 局部声学复核
+│   └── audio-event-verifier/    # 声音事件校验
+└── align-env/                   # 对齐器专用环境（见下）
 ```
 
 `MVSUB_MODEL_HOME` 指到**装着 `models/` 那一层的目录**（即 `~/.mvsub`）。已经有这套目录的话直接指过去，
-模型不用搬。对齐器单独用另一个解释器，是因为它需要的依赖和主流水线不同，混在一个环境里容易打架。
+模型不用搬。
+
+### 对齐环境（`align-env`）
+
+对齐器跑在**独立的解释器**里，因为它的依赖集与主流水线不同（torch 与 ctranslate2 对 CUDA/cuDNN 的
+要求会互相顶掉）。默认位置 `<model_home>/align-env/`，可用 `MVSUB_ALIGN_PYTHON` 或
+`mvsub.toml` 的 `[asr] align_python` 覆盖。
+
+它需要能 import 这五个包（下面是本项目实测通过的组合，仅供参考，不是唯一可行版本）：
+
+```bash
+python -m pip install "torch==2.7.1" "transformers==5.22.1" nagisa==0.3.1 "numpy==2.5.4" "scipy==1.18.1"
+```
+
+| 包 | 被谁用 | 实测版本 |
+|---|---|---|
+| `torch` | `align.py`、`verify_content.py`、`verify_events.py` | 2.7.1+cu128 |
+| `transformers` | 同上（`AutoModelForTokenClassification` / `AutoModelForMultimodalLM` / `AutoModelForAudioClassification`） | 5.22.1 |
+| `nagisa` | 分词（`align.py`、`caption.py`、`verify_content.py`、`verify_events.py`） | 0.3.1 |
+| `numpy` | 全部分阶段脚本 | 2.5.4 |
+| `scipy` | WAV 读写与相关运算（含主流水线的 `recognize` / `recover_words`） | 1.18.1 |
+
+`transformers` 的版本不能太低：`AutoModelForMultimodalLM` 与 `AutoModelForAudioClassification`
+在旧版本里不存在，会在 `verify_content` / `verify_events` 阶段直接 ImportError。
+
+`mvsub doctor` 会检查这个环境能不能 import 上述依赖，并单独报告可选复核模型是否就位。
 
 ## 安装
 
@@ -101,7 +142,13 @@ mvsub doctor
 mvsub scan --remote-cid <目录 cid>
 
 # 3. 正式跑（下载 ∥ 提取 ∥ 翻译 ∥ 回传；中断后原样重跑即续跑）
-mvsub run --remote-cid <目录 cid>
+#    付费翻译必须绑定预算台账：两个参数缺一个就 rc=2，这是刻意的闸门
+mvsub run --remote-cid <目录 cid> \
+    --budget-file ./ledger.json --budget-cny 20
+
+#    第一次先只跑一部，把环境问题一次暴露
+mvsub run --remote-cid <目录 cid> --limit 1 \
+    --budget-file ./ledger.json --budget-cny 5
 
 # 4. 看进度
 mvsub status --remote-cid <目录 cid>
@@ -114,11 +161,19 @@ mvsub verify "<video|->" "<原文.ja.srt>" "<中文.srt>"
 
 ```bash
 mvsub extract "D:/movies/movie.mkv" --output "D:/movies/movie.ja.srt"
+
+# 只翻译：同样必须带预算台账；--url 只接受官方地址（预算模式约束）
 mvsub translate "D:/movies/movie.ja.srt" --output "D:/movies/movie.srt" \
     --model deepseek-flash --url https://api.deepseek.com --grounded \
-    --batch-size 16 --max-workers 2 --reasoning-effort high
-mvsub reprocess "<plan.json>"       # 从源视频重新识别，四段并行
+    --batch-size 16 --max-workers 2 --off-peak-only \
+    --budget-file ./ledger.json --budget-cny 10
+
+mvsub reprocess "<plan.json>" --budget-file ./ledger.json --budget-cny 20   # 四段并行重做
 ```
+
+> `translate` 的 `--model` / `--url` 默认值是本地 Ollama（`qwen2.5:14b`、`localhost:11434`）。
+> 一旦带上预算参数，入口只接受 `deepseek-flash` + `https://api.deepseek.com`，
+> 否则在读取字幕之前就以 rc=2 退出。上面两条命令把这两个值写全，就是因为这个。
 
 `mvsub <子命令> --help` 打印的是各模块自己的原始参数——这里没有二次包装，不会出现
 「文档写的参数代码里没有」的偏差。

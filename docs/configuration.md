@@ -38,6 +38,18 @@
 `model_home` 指的是**装着 `models/` 那一层的目录**，不是 `models/` 本身。这样如果你之前已经有一套
 `<某目录>/models/japanese-turbo` 的部署，直接把 `MVSUB_MODEL_HOME` 指到 `<某目录>` 就能复用，不用挪文件。
 
+`home` 同样受三层优先级约束，**写进配置文件即可生效**：
+
+```toml
+home = "D:/media/mvsub"
+```
+
+设了它，没单独配置的 `archive_dir` / `download_dir` / `work_dir` / `model_home` 全部跟着走，
+不会留在用户目录。`mvsub config` 的第一行就是解析后的 `home`。
+
+> 0.1.0 曾经忽略配置文件里的 `home`（只在导入时读环境变量），导致「设了 D 盘却还落在 C 盘」。
+> 现在 `home()` 走统一的三层解析；`tests/test_release_regressions.py` 有对应用例。
+
 `align_python` 在 `[asr]` 段下（写 `mvsub.toml` 时是 `[asr] align_python = ...`），其余都在 `[paths]` 段。
 写在顶层的同名键也认，等价于 `[paths]`。
 
