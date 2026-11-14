@@ -12,6 +12,14 @@
 /mvsub.toml
 !/examples/mvsub.toml
 
+# Scratch files used while writing a commit or release note.
+# They live in the repo root for `git commit -F`, and without these rules they
+# end up inside the very commit they describe.
+/.cm-*.txt
+/.commit-msg*.txt
+/.rn-*.txt
+/.release-notes*.txt
+
 # Pipeline state and caches
 work/
 translation_memory.json
