@@ -1,0 +1,52 @@
+# Secrets — never commit. Use .env.example as the template.
+.env
+.env.*
+!.env.example
+*.cookie
+*_cookies.txt
+
+# Local configuration written by the user
+mvsub.toml
+
+# Pipeline state and caches
+work/
+translation_memory.json
+*.alignment.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# Model binaries and runtime libs (fetched separately, never vendored)
+models/
+lib/cuda/
+*.bin
+*.safetensors
+
+# Media
+*.srt
+*.ass
+*.vtt
+*.wav
+*.mp3
+*.mp4
+*.mkv
+*.m4a
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local-only test scaffolding (throwaway venv, dsh plugin dev link, smoke test)
+.local-test/
+.local-venv/
+dsh/node_modules/
+dsh/smoke.local.mjs

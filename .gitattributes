@@ -1,0 +1,10 @@
+# Normalize line endings: the pipeline is developed on Windows but published for
+# everyone, so store LF in the repository and let Git convert on checkout.
+* text=auto eol=lf
+
+# Keep binary/runtime files untouched.
+*.png binary
+*.jpg binary
+*.ico  binary
+*.safetensors binary
+*.bin  binary

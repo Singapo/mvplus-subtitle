@@ -1,0 +1,7 @@
+# The mvplus-subtitle bundle patch: one insert over the profile root, same shape as the
+# shipped bundles. The plugin is independent of other plugins, so a single row is enough.
+# Install it by adding the package name to the profile's `dsh.profile.bundles`.
+
+- insert:
+    - id: mvplus-subtitle
+      name: dsh-plugin-mvplus-subtitle

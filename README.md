@@ -1,0 +1,179 @@
+# mvplus-subtitle
+
+给云盘（115 网盘）里的影片补中文字幕：**下载 → 本地语音识别 → 强制对齐 → LLM 翻译 → 校验 → 回传原目录**。
+
+不依赖任何字幕站的现成字幕，用本机 GPU 从声音里把台词抠出来，再把中文写回云盘、和视频同名，
+播放器直接加载。也是 **DeepSeek Harness 插件**（见 [DSH 插件](#dsh-插件)）。
+
+> Subtitle a film that only exists in your cloud drive: download → local ASR → forced alignment →
+> LLM translation → verification → upload back to the same folder with the same name. No subtitle
+> site involved. Ships as a CLI and as a DeepSeek Harness plugin.
+
+```
+┌──────────────┐   ┌──────────────────────────┐   ┌──────────────┐   ┌──────────────┐
+│ 下载（3 并发）│ ∥ │ 取音 → 识别 → 强制对齐     │ ∥ │ 翻译（2 并发）│ ∥ │ 校验 → 回传   │
+│ 云盘 → 本地   │   │ + 局部声学复核（GPU 串行 1）│   │ 分批 + 上下文 │   │ 同名事务替换  │
+└──────────────┘   └──────────────────────────┘   └──────────────┘   └──────────────┘
+```
+
+四段是独立的并发池，不是串行管线：识别一部的同时预取下一部、并行翻译已就绪的字幕。
+详见 [流水线流程与验收](docs/pipeline.md)。
+
+## 它解决什么
+
+- 老片、冷门片只有视频，没有中文字幕；
+- 机器翻译字幕站要注册、要额度、还经常没有对应的片；
+- 手工跑 whisper + 翻译 + 上传，每次都要重新解决时钟、时间轴、编码、同名覆盖这些坑。
+
+本仓库把这些坑的解法固化成代码和不变量，并把每一步的验收判据写进文档：**结构校验只能证明
+可解析、时间轴一致、无假名残留，不能证明「每条都对」**——这条边界写在 [踩坑与约束](docs/pitfalls.md) 里。
+
+## 环境要求
+
+| 项目 | 要求 | 说明 |
+|---|---|---|
+| Python | 3.12+ | `p115client` 要求 `>=3.12,<4` |
+| FFmpeg | `ffmpeg` / `ffprobe` 在 PATH | 取音、探测时长 |
+| GPU | NVIDIA，显存足够跑 760M ASR + 0.6B 对齐 | CPU 能跑但极慢 |
+| 模型 | 日文 ASR + Qwen 强制对齐器 | **不自动下载**，见下文 |
+| 账号 | 115 cookie（读目录/下载/上传） | 只需要你自己的账号 |
+| 翻译 | DeepSeek API key，或人工/Agent 通道 | 付费翻译默认走 DeepSeek |
+
+### 模型准备（必须手工做一次）
+
+本项目**不会**自动下载模型，也不带模型权重。默认目录 `~/.mvsub/`：
+
+```
+~/.mvsub/
+├── models/
+│   ├── japanese-turbo/     # faster-whisper 日文模型，需含 model.bin
+│   ├── whisper-large-v3/   # 非日语源用的多语种模型（用到才需要）
+│   └── qwen-aligner/       # Qwen 强制对齐器，需含 config.json
+└── align-env/Scripts/python.exe   # 能 import torch 的独立环境（对齐器用）
+```
+
+`MVSUB_MODEL_HOME` 指到**装着 `models/` 那一层的目录**（即 `~/.mvsub`）。已经有这套目录的话直接指过去，
+模型不用搬。对齐器单独用另一个解释器，是因为它需要的依赖和主流水线不同，混在一个环境里容易打架。
+
+## 安装
+
+```bash
+git clone https://github.com/Singapo/mvplus-subtitle.git
+cd mvplus-subtitle
+uv sync          # 或 pip install -e .
+```
+
+## 配置
+
+三层，后者覆盖前者：**默认值 → 配置文件 → 环境变量**。
+
+```bash
+mvsub config     # 打印所有解析后的路径，配置对不对一眼就看出来
+mvsub doctor     # 体检：解释器、ffmpeg、模型、密钥、目录可写性
+```
+
+最小配置只需要密钥：
+
+```bash
+cp .env.example .env
+# 编辑 .env，填 P115_COOKIES 与 DEEPSEEK_API_KEY
+```
+
+路径相关的写在 `mvsub.toml`（见 [examples/mvsub.toml](examples/mvsub.toml)）：
+
+```toml
+home = "D:/media/mvsub"
+
+[paths]
+model_home = "D:/models/subtitle"
+work_dir   = "D:/media/mvsub/work"
+```
+
+完整说明见 [配置](docs/configuration.md)。密钥只放 `.env` 或环境变量，**不要**写进 `mvsub.toml`。
+
+## 快速开始
+
+```bash
+# 1. 体检
+mvsub doctor
+
+# 2. 只读预检：列出某个云盘目录里缺中文字幕的视频（不下载、不上传）
+mvsub scan --remote-cid <目录 cid>
+
+# 3. 正式跑（下载 ∥ 提取 ∥ 翻译 ∥ 回传；中断后原样重跑即续跑）
+mvsub run --remote-cid <目录 cid>
+
+# 4. 看进度
+mvsub status --remote-cid <目录 cid>
+
+# 5. 本地复核一对字幕（不联网、不写状态）
+mvsub verify "<video|->" "<原文.ja.srt>" "<中文.srt>"
+```
+
+本地单文件、只翻译、已有字幕重做时间轴：
+
+```bash
+mvsub extract "D:/movies/movie.mkv" --output "D:/movies/movie.ja.srt"
+mvsub translate "D:/movies/movie.ja.srt" --output "D:/movies/movie.srt" \
+    --model deepseek-flash --url https://api.deepseek.com --grounded \
+    --batch-size 16 --max-workers 2 --reasoning-effort high
+mvsub reprocess "<plan.json>"       # 从源视频重新识别，四段并行
+```
+
+`mvsub <子命令> --help` 打印的是各模块自己的原始参数——这里没有二次包装，不会出现
+「文档写的参数代码里没有」的偏差。
+
+## 成本
+
+翻译是唯一的付费环节，也是唯一需要算计的地方：
+
+- 默认 `--batch-size 16`、`--max-output-tokens 16384`、`--max-workers 2`、`--off-peak-only`；
+- 请求只携带相邻句作为上下文，**不重复发送整片全文**；
+- 短对白不默认开思维链（推理常占输出 90% 以上）；
+- 断点续跑用 checkpoint 与本地响应缓存，中断重跑不重复付费。
+
+实测数字（思考 token 占比、批次上下文体积的两处翻车与修正）见
+[踩坑与约束](docs/pitfalls.md) 第 4 章「翻译：提示词与验收判据」。
+
+## DSH 插件
+
+仓库内 `dsh/` 是一个 DeepSeek Harness 插件包，把 CLI 挂成模型可调用的工具
+（`mvsub_scan` / `mvsub_run` / `mvsub_doctor` 等），因此可以直接对 DSH 说
+「把 115 上这个目录里缺字幕的片补上中文字幕」。
+
+```bash
+dsh plugin add git+https://github.com/Singapo/mvplus-subtitle.git#path:dsh
+```
+
+也可以从本地路径装：`dsh plugin add file:D:/path/to/mvplus-subtitle/dsh`。
+细节与依赖见 [dsh/README.md](dsh/README.md)。
+
+## 已知边界
+
+诚实列出，不掩饰：
+
+- **跨版本复用未包含**：拿已发布的字幕去套同片的不同压制版本，需要额外的一次性脚本；
+  本发行版遇到该分支会**明确失败并阻止重跑 ASR**，而不是静默复制。
+- **6 个上游遗留失败用例**标为 `xfail` 并写明原因（p115 版本契约、块大小常量漂移、`kind` 口径分歧），
+  见 [tests/conftest.py](tests/conftest.py)。移植没有改动这些行为。
+- **Windows 优先**：主路径在 Windows 上验证；层级/编码相关代码有平台判断，但 Linux 未系统验证。
+- **不做「每条都对」的承诺**：自动判据只覆盖结构、时间轴、假名残留、CPS 等可判定项；
+  语义正确性仍需人工抽查。
+- **不做持续值守**：这是单次运行的 CLI，没有守护进程。要长期保障请自己用计划任务包一层。
+
+## 文档
+
+| 文档 | 内容 |
+|---|---|
+| [docs/pipeline.md](docs/pipeline.md) | 四段并行、状态机、断点续跑、验收判据、上传事务 |
+| [docs/configuration.md](docs/configuration.md) | 配置优先级、每个键的含义、`.env` 键 |
+| [docs/pitfalls.md](docs/pitfalls.md) | 踩坑与约束：115 接口、音视频时钟、识别对齐、翻译验收、成本 |
+| [docs/architecture.md](docs/architecture.md) | 代码结构与模块职责，改哪里不会踩坏别处 |
+| [docs/115-api.md](docs/115-api.md) | 115 接口实测行为与必须打的补丁 |
+
+## 许可
+
+MIT，见 [LICENSE](LICENSE)。
+
+第三方组件（faster-whisper、p115sync、FFmpeg 等）遵循各自许可，模型权重需自行获取并遵守其许可。
+本项目由作者自用的 `MVplus` 项目抽取而来；抽取只做了配置外置与路径通用化，流水线行为未变。
