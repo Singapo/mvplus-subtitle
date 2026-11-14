@@ -68,8 +68,14 @@ MODEL_ASR = "efwkjn/faster-whisper-ja-760M + Qwen3-ForcedAligner-0.6B-hf"
 
 MODEL_TRANSLATE = "deepseek-flash"
 TRANSLATE_URL = "https://api.deepseek.com"
+# Reasoning effort is configuration, not a constant: measured on the same eight
+# explicit cues, `low` translated all of them for 0.0067 CNY while `high` refused
+# them and spent 0.0251 CNY. The pipeline this was extracted from ran `low` in
+# production; the ported default of `high` was a transcription error, not a
+# decision.
+TRANSLATE_REASONING = config.translate_reasoning()
 TRANSLATE_EXTRA = ["--grounded", "--batch-size", "16", "--max-workers", "2",
-                   "--max-output-tokens", "16384", "--reasoning-effort", "high",
+                   "--max-output-tokens", "16384", "--reasoning-effort", TRANSLATE_REASONING,
                    "--timeout", "660", "--off-peak-only"]
 PAID_ARGS = []
 

@@ -262,6 +262,32 @@ def translate_prompt() -> Path:
     return _path("translate_prompt", default)
 
 
+def translate_reasoning() -> str:
+    """Reasoning effort for translation requests: ``low`` (default), ``high`` or ``max``.
+
+    Measured on eight explicit cues with the same model and prompt:
+    ``low`` translated all eight for 0.0067 CNY, ``high`` refused them and cost
+    0.0251 CNY. Higher effort is not free accuracy here — it is a different
+    outcome plus four times the price.
+    """
+    value = (_lookup("translate_reasoning") or "low").strip().lower()
+    if value not in {"low", "high", "max"}:
+        raise ValueError(f"MVSUB_TRANSLATE_REASONING must be low/high/max, got {value!r}")
+    return value
+
+
+def name_map() -> Path:
+    """Table mapping Japanese names to Chinese, used before and after translation.
+
+    The shipped file is an empty, documented template: real performer names are
+    the user's data, not something to publish. Without a populated table the
+    model has no way to render a name it cannot read, leaves the kana in place,
+    and the "no Japanese in the output" gate then blocks the film.
+    """
+    default = Path(__file__).resolve().parent / "prompts" / "name_map.txt"
+    return _path("name_map", default)
+
+
 def archive_dir() -> Path:
     """Where verified Japanese source SRTs are archived locally."""
     return _path("archive_dir", home() / "originals")

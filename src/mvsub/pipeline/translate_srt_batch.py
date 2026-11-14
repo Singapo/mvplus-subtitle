@@ -191,7 +191,7 @@ def looks_untranslated(text: str, source: str) -> bool:
 #   2) 语音识别会**听错人名**：`いぶき` 被听成 `ひぶき`（同一语料里 16 处正确 vs 2 处误听）。
 # 本表是**固定**的、优先于模型自生成的人物关系；翻译后再按本表做一次"残留日文名归一"，
 # 命中即替换成中文，避免"整句因为一个名字带假名"被判漏译。
-NAME_MAP_PATH = Path(__file__).resolve().parent / "prompts" / "name_map.txt"
+NAME_MAP_PATH = config.name_map()
 NAME_MAP_CACHE: dict | None = None
 
 
