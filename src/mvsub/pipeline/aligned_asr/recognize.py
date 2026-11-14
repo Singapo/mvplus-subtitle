@@ -19,7 +19,7 @@ AUDIO=Path(sys.argv[2]).resolve().parent
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 sys.stdout.reconfigure(encoding='utf-8')
 handles=[];bins=[]
-for base in (Path(sysconfig.get_path('purelib'))/'nvidia',ROOT/'lib/cuda/nvidia'):
+for base in (Path(sysconfig.get_path('purelib'))/'nvidia',config.cuda_libs()/'nvidia'):
     if base.is_dir():
         for pkg in base.iterdir():
             d=pkg/'bin'

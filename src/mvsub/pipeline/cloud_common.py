@@ -27,6 +27,7 @@
 """
 from __future__ import annotations
 
+import os
 import time
 import json
 import subprocess
@@ -210,6 +211,31 @@ def install_oss_upload_retry() -> bool:
 
 
 # ------------------------------------------------- 客户端
+def normalize_no_proxy() -> list[str]:
+    """Make ``NO_PROXY`` parseable by httpx; return what was rewritten.
+
+    httpx builds a URL pattern for every ``NO_PROXY`` entry, so an entry it
+    cannot parse as a URL aborts client construction with a message that says
+    nothing about proxies (``Invalid port: ':1]'``). Bracketed IPv6 literals are
+    the common offender: ``[::1]`` is fine in a URL and in a hosts file, but
+    httpx wants ``::1``. Only brackets are stripped — a real proxy setting is
+    kept intact, because dropping proxies wholesale would break the users who
+    legitimately need one to reach the drive.
+    """
+    changed: list[str] = []
+    for name in ("NO_PROXY", "no_proxy"):
+        raw = os.environ.get(name)
+        if not raw:
+            continue
+        parts = [part.strip() for part in raw.split(",")]
+        fixed = [part[1:-1] if part.startswith("[") and part.endswith("]") else part
+                 for part in parts]
+        if fixed != parts:
+            os.environ[name] = ",".join(fixed)
+            changed.extend(f for f in parts if f not in fixed)
+    return changed
+
+
 class Cloud115:
     """115 客户端：打好全部补丁，提供下载 / 上传 / 列目录 / 改名 / 删除。
 
@@ -221,6 +247,9 @@ class Cloud115:
 
         self.cookie = cookie
         self.log = log
+        rewritten = normalize_no_proxy()
+        if rewritten:
+            _log(f"NO_PROXY 里的 IPv6 写法已归一化（去方括号）: {', '.join(rewritten)}")
         self.cookies = {k.strip(): v.strip() for k, v in
                         (p.split("=", 1) for p in cookie.split(";") if "=" in p)}
         self.client = P115Client(cookie)

@@ -27,7 +27,7 @@ TOOLS_DIR = Path(__file__).resolve().parent           # src/mvsub/pipeline
 SUBTITLE_ROOT = config.repo_root()                    # 仓库根
 PROJECT_ROOT = SUBTITLE_ROOT                          # .env 所在
 MODEL_ROOT = config.model_home() / "faster-whisper"
-CUDA_LIB_ROOT = SUBTITLE_ROOT / "lib" / "cuda"
+CUDA_LIB_ROOT = config.cuda_libs()
 
 # Display cues must not bridge long pauses, even when Whisper merges the words.
 WORD_PAUSE_SECONDS = 1.0
@@ -610,8 +610,8 @@ def main():
     hf_token = args.hf_token or os.environ.get("HF_TOKEN")
 
     # Ensure PATH includes cuDNN/cuBLAS DLLs on Windows.
-    # 两个来源：当前 venv 里装的 nvidia-* 包，以及项目自带的 subtitle/lib/cuda/nvidia
-    # （从旧 pyvideotrans 环境迁出，`uv sync` 不会删除它）。
+    # 两个来源：当前 venv 里装的 nvidia-* 包，以及 config.cuda_libs() 指向的目录
+    # （手放的 DLL，复用旧部署时不用重装几 GB 的 wheel）。
     # 注意：Python 3.8+ 起 Windows 的 DLL 搜索不再看 PATH，必须用 os.add_dll_directory，
     # 否则会报 `Library cublas64_12.dll is not found or cannot be loaded`。
     if args.cuda:

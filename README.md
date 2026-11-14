@@ -35,10 +35,22 @@
 | Python | 3.12+ | `p115client` 要求 `>=3.12,<4` |
 | FFmpeg | `ffmpeg` / `ffprobe` 在 PATH | 取音、探测时长 |
 | GPU | NVIDIA，显存足够跑 760M ASR + 0.6B 对齐 | CPU 能跑但极慢 |
+| CUDA DLL | `cublas64_12` / cuDNN（见下） | 缺了 GPU 提取直接报 `cublas64_12.dll is not found` |
 | 模型 | 日文 ASR + Qwen 强制对齐器（见下表） | **不自动下载** |
 | 对齐环境 | 独立解释器 + torch/transformers/nagisa | 见下「对齐环境」 |
 | 账号 | 115 cookie（读目录/下载/上传） | 只需要你自己的账号 |
 | 翻译 | DeepSeek API key，或人工/Agent 通道 | 付费翻译默认走 DeepSeek |
+
+CUDA DLL 有两个来源，任选其一：
+
+```bash
+python -m pip install nvidia-cublas-cu12 nvidia-cudnn-cu12   # 落到 site-packages，自动被识别
+# 或者：把已有的 DLL 目录指过来（`nvidia/<pkg>/bin` 布局），复用旧部署
+# MVSUB_CUDA_LIBS=D:/old-deploy/subtitle/lib/cuda
+```
+
+只加 PATH **不行**：Windows 上 Python 3.8+ 的 DLL 搜索不再看 PATH，必须走
+`os.add_dll_directory`，这也是它被做成配置项的原因。`mvsub doctor` 会报 `cuda_libs`。
 
 ### 模型准备（必须手工做一次）
 

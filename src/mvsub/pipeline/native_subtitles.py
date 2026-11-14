@@ -127,7 +127,7 @@ def recognize_evidence(source,work):
     else:
         handles=[];bins=[]
         root=config.repo_root()
-        for base in (Path(sys.prefix)/'Lib/site-packages/nvidia',root/'lib/cuda/nvidia'):
+        for base in (Path(sys.prefix)/'Lib/site-packages/nvidia',config.cuda_libs()/'nvidia'):
             if base.is_dir():
                 for package in base.iterdir():
                     target=package/'bin'

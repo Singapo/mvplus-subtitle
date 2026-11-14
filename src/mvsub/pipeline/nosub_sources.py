@@ -67,7 +67,7 @@ def extract_auto(audio,source,job,repair_word_alignment=False):
     from extract_srt import load_faster_whisper,extract
     # Use the same CUDA DLL setup as the established local recognizer.
     bins=[];handles=[]
-    for base in (Path(os.sys.prefix)/'Lib/site-packages/nvidia',ROOT/'subtitle/lib/cuda/nvidia'):
+    for base in (Path(os.sys.prefix)/'Lib/site-packages/nvidia',config.cuda_libs()/'nvidia'):
         if base.is_dir():
             for package in base.iterdir():
                 target=package/'bin'

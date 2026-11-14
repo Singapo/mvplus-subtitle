@@ -44,7 +44,7 @@ def decode_review(source, audio, folder, cue_ids, device='cuda'):
                           capture_output=True,text=True,check=True)
     if 'jasna' in active.stdout.lower():raise RuntimeError('Jasna is using GPU; defer source review')
     handles=[];bins=[]
-    for base in (Path(sysconfig.get_path('purelib'))/'nvidia',config.repo_root()/'lib/cuda/nvidia'):
+    for base in (Path(sysconfig.get_path('purelib'))/'nvidia',config.cuda_libs()/'nvidia'):
         if base.is_dir():
             for package in base.iterdir():
                 dll=package/'bin'

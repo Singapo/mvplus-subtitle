@@ -43,6 +43,7 @@ __all__ = [
     "align_python",
     "align_libs",
     "model_libs",
+    "cuda_libs",
     "archive_dir",
     "download_dir",
     "work_dir",
@@ -234,6 +235,18 @@ def align_libs() -> Path:
 def model_libs() -> Path:
     """Extra site-libraries directory shipped beside the models, if any."""
     return _path("model_libs", model_home() / "align-libs")
+
+
+def cuda_libs() -> Path:
+    """Directory holding prebuilt CUDA libraries, in the ``nvidia/<pkg>/bin`` layout.
+
+    faster-whisper needs ``cublas64_12.dll`` and the cuDNN DLLs before any GPU
+    decode. They arrive either as ``nvidia-*-cu12`` wheels (which land in
+    site-packages) or as a directory you prepared by hand. Nothing ships them,
+    and a PATH entry alone does not work on Windows — the DLLs must come from
+    ``os.add_dll_directory``, which is why the location is configuration.
+    """
+    return _path("cuda_libs", repo_root() / "lib" / "cuda")
 
 
 def archive_dir() -> Path:

@@ -69,6 +69,26 @@ def test_environment_wins_over_the_dotenv_file(monkeypatch, tmp_path):
     assert env["DEEPSEEK_API_KEY"] == "sk-file"
 
 
+def test_cuda_libs_is_configurable(monkeypatch, tmp_path):
+    """The CUDA DLL directory must be overridable, not hardcoded to the repo.
+
+    Without this, a deployment that already has the DLLs (or installs the
+    nvidia wheels) still fails on GPU decode with `cublas64_12.dll is not found`.
+    """
+    target = tmp_path / "cuda"
+    monkeypatch.setenv("MVSUB_CUDA_LIBS", str(target))
+    config.reload()
+
+    assert config.cuda_libs() == target
+
+
+def test_cuda_libs_defaults_inside_the_checkout(monkeypatch):
+    monkeypatch.delenv("MVSUB_CUDA_LIBS", raising=False)
+    config.reload()
+
+    assert config.cuda_libs() == config.repo_root() / "lib" / "cuda"
+
+
 def test_explicit_env_file_is_authoritative(monkeypatch, tmp_path):
     """Naming a credentials file must not silently fall back to another one.
 

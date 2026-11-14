@@ -31,6 +31,7 @@
 | `align_python` | `MVSUB_ALIGN_PYTHON` | `<model_home>/align-env/{Scripts/python.exe,bin/python}` | 对齐器解释器 |
 | `align_libs` | `MVSUB_ALIGN_LIBS` | 本包的 `pipeline/` 目录 | 对齐器要 import 的 `aligned_asr` 所在目录 |
 | `model_libs` | `MVSUB_MODEL_LIBS` | `<model_home>/align-libs` | 模型侧额外 site-libraries（可选） |
+| `cuda_libs` | `MVSUB_CUDA_LIBS` | `<repo>/lib/cuda` | CUDA DLL 目录（`nvidia/<pkg>/bin` 布局）；没装 `nvidia-*-cu12` wheel 时靠它 |
 | `archive_dir` | `MVSUB_ARCHIVE_DIR` | `<home>/originals` | 日文原文归档（只留本地） |
 | `download_dir` | `MVSUB_DOWNLOAD_DIR` | `<home>/downloads` | 下载默认落地目录 |
 | `work_dir` | `MVSUB_WORK_DIR` | `<home>/work` | 状态、缓存、断点、临时文件 |

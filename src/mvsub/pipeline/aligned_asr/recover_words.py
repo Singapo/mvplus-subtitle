@@ -25,7 +25,7 @@ def run(dest,audio):
     vad_path=dest/'vad_evidence.json'
     vad=json.loads(vad_path.read_text('utf-8')) if vad_path.exists() else {}
     if vad.get('audio_sha1')!=audio_sha:vad={}
-    for base in (Path(sysconfig.get_path('purelib'))/'nvidia',config.repo_root()/'lib/cuda/nvidia'):
+    for base in (Path(sysconfig.get_path('purelib'))/'nvidia',config.cuda_libs()/'nvidia'):
         if base.is_dir():
             for package in base.iterdir():
                 folder=package/'bin'

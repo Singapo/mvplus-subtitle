@@ -12,6 +12,7 @@ import runpy
 import shutil
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 
 from mvsub import __version__
@@ -149,6 +150,7 @@ def cmd_doctor(args: argparse.Namespace, argv: list[str]) -> int:
           config.align_model() / "config.json")
     check(config.align_python().is_file(), "align_python", config.align_python())
     _check_runtime_imports(check)
+    _check_cuda_libraries(check, notes)
     _check_align_environment(check, notes)
 
     for label, path in (("archive_dir", config.archive_dir()),
@@ -180,6 +182,41 @@ OPTIONAL_MODELS = (
     ("qwen-asr-verifier", "局部声学复核"),
     ("audio-event-verifier", "声音事件校验"),
 )
+
+
+def _check_cuda_libraries(check, notes: list[str]) -> None:
+    """Find the CUDA DLLs faster-whisper needs before it can decode on GPU.
+
+    They come from ``nvidia-*-cu12`` wheels (site-packages) or from a directory
+    you pointed ``MVSUB_CUDA_LIBS`` at. Without them the first extraction dies
+    with ``Library cublas64_12.dll is not found or cannot be loaded`` — after the
+    download has already been paid for, which is the expensive way to find out.
+    """
+    site_packages = Path(sysconfig.get_path("purelib")) / "nvidia"
+    roots = [site_packages, config.cuda_libs() / "nvidia"]
+    found = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for package in root.iterdir():
+            bindir = package / "bin"
+            if not bindir.is_dir():
+                continue
+            if bindir.glob("cublas64_*.dll") or bindir.glob("libcublas.so*"):
+                found.append(str(bindir))
+    if found:
+        check(True, "cuda_libs", found[0])
+        if len(found) > 1:
+            notes.append(f"cuda_libs: {len(found)} candidate dirs; first one is used")
+    else:
+        note = (
+            "未找到 cublas DLL：GPU 提取会报 "
+            "`Library cublas64_12.dll is not found`。"
+            "解法：安装 nvidia-cublas-cu12 / nvidia-cudnn-cu12，"
+            "或用 MVSUB_CUDA_LIBS 指向现有 DLL 目录（nvidia/<pkg>/bin 布局）"
+        )
+        check(False, "cuda_libs", "not found")
+        notes.append(note)
 
 
 def _check_runtime_imports(check) -> None:

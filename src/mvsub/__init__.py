@@ -15,5 +15,5 @@ PIPELINE_DIR = Path(__file__).resolve().parent / "pipeline"
 if str(PIPELINE_DIR) not in sys.path:
     sys.path.insert(0, str(PIPELINE_DIR))
 
-__version__ = "0.1.4"
+__version__ = "0.1.5"
 __all__ = ["PIPELINE_DIR", "__version__"]

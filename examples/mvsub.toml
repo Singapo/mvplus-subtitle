@@ -26,6 +26,12 @@ download_dir = "D:/media/mvsub/downloads"
 # 流水线状态、缓存、断点文件
 work_dir = "D:/media/mvsub/work"
 
+# CUDA DLL 目录（nvidia/<pkg>/bin 布局）。
+# 装了 nvidia-cublas-cu12 / nvidia-cudnn-cu12 就不需要这项；
+# 手放 DLL 或复用旧部署时指过去，否则 GPU 提取会报
+# `Library cublas64_12.dll is not found or cannot be loaded`。
+# cuda_libs = "D:/old-deploy/subtitle/lib/cuda"
+
 [asr]
 # 跑强制对齐器的解释器（需要能 import torch）。
 # 默认是 model_home 的同级目录 align-env。
