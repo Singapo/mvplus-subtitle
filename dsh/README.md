@@ -88,7 +88,12 @@ dsh plugin add file:D:/path/to/mvplus-subtitle/dsh
     "PYTHONPATH": "D:/path/to/mvplus-subtitle/src",
     "MVSUB_MODEL_HOME": "D:/models/subtitle",
     "MVSUB_ENV_FILE": "D:/path/to/MVplus/.env",
-    "MVSUB_HOME": "D:/media/mvsub"
+    "MVSUB_HOME": "D:/media/mvsub",
+    "MVSUB_CUDA_LIBS": "D:/old-deploy/subtitle/lib/cuda",
+    "MVSUB_TRANSLATE_PROMPT": "D:/path/to/mvplus-subtitle/src/mvsub/pipeline/prompts/system_prompt_v9_grounded_name_policy.txt",
+    "MVSUB_NAME_MAP": "D:/my/name_map.txt",
+    "MVSUB_TRANSLATE_REASONING": "low",
+    "MVSUB_ALLOW_ISOLATED": "1"
   }
 }
 ```
@@ -101,6 +106,14 @@ dsh plugin add file:D:/path/to/mvplus-subtitle/dsh
 | `env.PYTHONPATH` | 源码方式必需 | 没 `pip install -e .` 时，靠它让 `python -m mvsub` 找到包 |
 | `env.MVSUB_ENV_FILE` | 可选 | 复用已有的 `.env`（里面是 `P115_COOKIES` / `DEEPSEEK_API_KEY`） |
 | `env.MVSUB_HOME` | 可选 | 归档/下载/工作目录的根；不给会落到 `~/.mvsub` |
+| `env.MVSUB_CUDA_LIBS` | 建议 | 没装 `nvidia-*-cu12` wheel 时，指向现有 CUDA DLL 目录 |
+| `env.MVSUB_TRANSLATE_PROMPT` | 建议 | 用 `..._name_policy.txt` 变体：含内容政策与未收录人名音译 |
+| `env.MVSUB_NAME_MAP` | 建议 | 自己的 人名对照表；空模板会让表外人名留假名，整片被验收拦下 |
+| `env.MVSUB_TRANSLATE_REASONING` | 建议 | `low`：实测能译出 `high` 会拒译的内容，且便宜四倍 |
+| `env.MVSUB_ALLOW_ISOLATED` | 可选 | `1` = 无译文行剔除后照常发布；默认缺一行就不发 |
+
+后四项是**跑通一部真片必需**的（见 [配置](../docs/configuration.md#翻译相关决定成败的四项)）。
+不给它们，插件会按默认参数运行，遇到露骨对白或表外人名就会停在验收。**改这个文件不需要重启 DSH。**
 
 文件带 BOM 也能读（Windows 编辑器常写 BOM）。优先级：环境变量 > 本文件 > PATH 上的 `python`。
 

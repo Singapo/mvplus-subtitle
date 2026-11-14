@@ -156,6 +156,24 @@ work_dir   = "D:/media/mvsub/work"
 
 完整说明见 [配置](docs/configuration.md)。密钥只放 `.env` 或环境变量，**不要**写进 `mvsub.toml`。
 
+### 翻译相关四项（决定一部片能不能跑通）
+
+```toml
+translate_reasoning = "low"          # low / high / max
+translate_prompt    = "src/mvsub/pipeline/prompts/system_prompt_v9_grounded_name_policy.txt"
+name_map            = "D:/my/name_map.txt"   # 自己的表，别提交
+allow_isolated      = "1"            # 无译文的行剔除后照常发布
+```
+
+这四项不是调优，是**实测出来的必需项**：
+
+- `low` 推理：同一批露骨对白 `low` 全译出（¥0.0067），`high` 全拒译（¥0.0251）；
+- `name_policy` 提示词：内容政策 + 未收录人名按读音译中文，实测能过；
+- `name_map`：留空模板时表外人名会留假名，验收直接拦下整片；
+- `allow_isolated`：受限/待核行剔除后发布，默认关（缺行就不发）。
+
+详见 [配置：翻译相关四项](docs/configuration.md#翻译相关决定成败的四项)。
+
 ## 快速开始
 
 ```bash

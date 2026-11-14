@@ -36,6 +36,34 @@
 | `download_dir` | `MVSUB_DOWNLOAD_DIR` | `<home>/downloads` | 下载默认落地目录 |
 | `work_dir` | `MVSUB_WORK_DIR` | `<home>/work` | 状态、缓存、断点、临时文件 |
 
+### 翻译相关（决定成败的四项）
+
+| 键 | 环境变量 | 默认值 | 用途 |
+|---|---|---|---|
+| `translate_prompt` | `MVSUB_TRANSLATE_PROMPT` | `pipeline/prompts/system_prompt_v9_grounded.txt` | 系统提示词文件 |
+| `translate_reasoning` | `MVSUB_TRANSLATE_REASONING` | `low` | 推理强度：`low` / `high` / `max` |
+| `name_map` | `MVSUB_NAME_MAP` | `pipeline/prompts/name_map.txt`（空模板） | 人名对照表 |
+| `allow_isolated` | `MVSUB_ALLOW_ISOLATED` | `0`（关） | 无译文的行剔除后照常发布 |
+
+这四项都有实测依据，不是可选项：
+
+- **推理强度**：同一批 8 句露骨对白，`low` 全部译出、花 ¥0.0067；`high` 全部拒译、花 ¥0.0251。
+  调高不等于更准，等于换个结果加四倍价钱。
+- **提示词**：仓库里有三个变体——
+
+  | 文件 | 适用 |
+  |---|---|
+  | `system_prompt_v9_grounded.txt` | 默认。忠实、不补写，遇露骨对白可能被模型拒译 |
+  | `system_prompt_v9_grounded_content_policy.txt` | 加上「露骨内容用克制概括、保留剧情、不隔离」 |
+  | `system_prompt_v9_grounded_name_policy.txt` | 内容政策 + 「未收录人名按读音译中文」；**实测能过**，含露骨对白与未登录人名 |
+
+- **人名表**：空模板时，模型遇到表外人名只能留假名，而验收不允许中文里出现假名，整片会停。
+  实际部署请把自己的表填进去，或改用 `name_policy` 提示词。**表是个人数据，不进发布包。**
+- **隔离发布**：默认关——缺行就不发布。开启后，没有可用译文的行（受限、声学待核、批次失败）
+  从成品剔除，其余照发，日志会列出剔除的 ID。
+
+这四项可以写在 `mvsub.toml` 的 `[paths]` 里，或用环境变量；`mvsub config` 能看到生效值。
+
 `model_home` 指的是**装着 `models/` 那一层的目录**，不是 `models/` 本身。这样如果你之前已经有一套
 `<某目录>/models/japanese-turbo` 的部署，直接把 `MVSUB_MODEL_HOME` 指到 `<某目录>` 就能复用，不用挪文件。
 
