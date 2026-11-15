@@ -236,6 +236,41 @@ def normalize_no_proxy() -> list[str]:
     return changed
 
 
+def drop_unreachable_proxy(log=_log) -> list[str]:
+    """Remove proxy env vars whose host:port refuses connections.
+
+    A stale proxy setting (a client that has since been closed, typically a local
+    port like 127.0.0.1:7897) makes every request fail with WinError 10061 before
+    the first byte is sent. 115 is a domestic service that works directly, so a
+    dead proxy is strictly worse than no proxy. A live proxy is left untouched.
+    """
+    import socket
+    import urllib.parse
+
+    removed = []
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+                 "http_proxy", "https_proxy", "all_proxy"):
+        raw = os.environ.get(name)
+        if not raw:
+            continue
+        try:
+            parsed = urllib.parse.urlsplit(raw if "://" in raw else "http://" + raw)
+            host, port = parsed.hostname, parsed.port or 80
+        except ValueError:
+            continue
+        if not host:
+            continue
+        try:
+            with socket.create_connection((host, port), timeout=1.0):
+                pass
+        except OSError:
+            os.environ.pop(name, None)
+            removed.append(f"{name}={raw}")
+    if removed:
+        log(f"代理不可达，已临时绕过（直连）: {', '.join(removed)}")
+    return removed
+
+
 class Cloud115:
     """115 客户端：打好全部补丁，提供下载 / 上传 / 列目录 / 改名 / 删除。
 
@@ -247,6 +282,7 @@ class Cloud115:
 
         self.cookie = cookie
         self.log = log
+        drop_unreachable_proxy(log)
         rewritten = normalize_no_proxy()
         if rewritten:
             _log(f"NO_PROXY 里的 IPv6 写法已归一化（去方括号）: {', '.join(rewritten)}")
